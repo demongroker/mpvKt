@@ -21,8 +21,8 @@ android {
     applicationId = "app.vela.player"
     minSdk = 21
     targetSdk = 36
-    versionCode = 210
-    versionName = "0.1.8"
+    versionCode = 220
+    versionName = "0.1.9"
 
     vectorDrawables {
       useSupportLibrary = true
@@ -31,15 +31,6 @@ android {
     buildConfigField("String", "GIT_SHA", "\"${getCommitSha()}\"")
     buildConfigField("int", "GIT_COUNT", getCommitCount())
   }
-  splits {
-    abi {
-      isEnable = false
-      reset()
-      include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
-      isUniversalApk = true
-    }
-  }
-
   signingConfigs {
     create("release") {
       val ks = System.getenv("MPVKT_KEYSTORE").orEmpty()
@@ -75,6 +66,16 @@ android {
     named("debug") {
       applicationIdSuffix = ".debug"
       versionNameSuffix = "-${getCommitCount()}"
+    }
+  }
+  // Single universal APK on purpose: per-ABI splits hand out different versionCodes,
+  // and an app that installed a split cannot later "upgrade" to the universal build.
+  splits {
+    abi {
+      isEnable = false
+      reset()
+      include("armeabi-v7a", "arm64-v8a", "x86_64")
+      isUniversalApk = true
     }
   }
   compileOptions {
@@ -127,6 +128,7 @@ room {
 }
 
 dependencies {
+  testImplementation("junit:junit:4.13.2")
   implementation(libs.androidx.activity.compose)
   implementation(platform(libs.androidx.compose.bom))
   implementation(libs.androidx.ui)

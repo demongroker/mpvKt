@@ -49,7 +49,7 @@ jobs:
           MPVKT_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon assembleRelease -x lint
+          ./gradlew --no-daemon testDebugUnitTest assembleRelease -x lint
 
       - name: Collect APKs
         run: |
