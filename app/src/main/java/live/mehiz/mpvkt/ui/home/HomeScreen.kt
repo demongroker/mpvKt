@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -61,6 +62,9 @@ object HomeScreen : Screen {
         TopAppBar(
           title = { Text(text = stringResource(id = R.string.app_name)) },
           actions = {
+            IconButton(onClick = { backstack.add(VideoLibraryScreen) }) {
+              Icon(Icons.Default.VideoLibrary, null)
+            }
             IconButton(onClick = { backstack.add(PreferencesScreen) }) {
               Icon(Icons.Default.Settings, null)
             }
