@@ -19,6 +19,14 @@ import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.TextButton
+import androidx.compose.foundation.layout.fillMaxWidth
+import android.widget.Toast
+import live.mehiz.mpvkt.BuildConfig
+import live.mehiz.mpvkt.ui.update.ChangelogScreen
+import live.mehiz.mpvkt.update.GhRelease
+import live.mehiz.mpvkt.update.Updater
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -86,6 +94,43 @@ object HomeScreen : Screen {
         verticalArrangement = Arrangement.Center,
       ) {
         val uri = rememberTextFieldState()
+        var update by remember { mutableStateOf<GhRelease?>(null) }
+        var downloading by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) {
+          val latest = Updater.latest()
+          if (latest != null && Updater.releaseSha(latest) != BuildConfig.GIT_SHA) {
+            update = latest
+          }
+        }
+        update?.let { rel ->
+          Card(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+            Column(Modifier.padding(12.dp)) {
+              Text(
+                text = "Update available — ${rel.tag}",
+                style = MaterialTheme.typography.titleSmall,
+              )
+              Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = { backstack.add(ChangelogScreen) }) { Text("What's new") }
+                val apk = Updater.downloadedFile(context, rel)
+                if (apk.exists() && apk.length() > 0) {
+                  Button(onClick = { Updater.install(context, apk) }) { Text("Install") }
+                } else {
+                  Button(
+                    enabled = !downloading,
+                    onClick = {
+                      downloading = Updater.startDownload(context, rel) != null
+                      Toast.makeText(
+                        context,
+                        "Downloading in background — it resumes if the connection drops",
+                        Toast.LENGTH_LONG,
+                      ).show()
+                    },
+                  ) { Text(if (downloading) "Downloading…" else "Download") }
+                }
+              }
+            }
+          }
+        }
         var isUrlValid by remember { mutableStateOf(true) }
         LaunchedEffect(uri.text) {
           isUrlValid = uri.text.isNotEmpty() || isURLValid(uri.text.toString())

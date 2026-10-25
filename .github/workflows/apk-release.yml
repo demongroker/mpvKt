@@ -77,6 +77,7 @@ jobs:
           TAG="${GITHUB_REF#refs/tags/}"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" out/* --clobber
+            gh release edit "$TAG" --notes "Vela $TAG — signed build. sha:${GITHUB_SHA}"
           else
-            gh release create "$TAG" out/* --title "$TAG" --notes "Signed build of mpvKt (demongroker fork) $TAG"
+            gh release create "$TAG" out/* --title "Vela $TAG" --notes "Vela $TAG — signed build. sha:${GITHUB_SHA}"
           fi
