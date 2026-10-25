@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import android.util.Size
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -29,6 +30,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -61,12 +63,24 @@ import kotlinx.serialization.Serializable
 import live.mehiz.mpvkt.presentation.Screen
 import live.mehiz.mpvkt.ui.utils.LocalBackStack
 
+/** Column name of the video's parent folder; a literal so it also works pre-API 29. */
+private const val COLUMN_BUCKET = "bucket_display_name"
+
+/** Fallback folder label for videos that MediaStore cannot attribute to a folder. */
+private const val OTHER_FOLDER = "Other"
+
 data class DeviceVideo(
   val id: Long,
   val uri: Uri,
   val name: String,
   val durationMs: Long,
   val sizeBytes: Long,
+  val folder: String,
+)
+
+data class VideoFolder(
+  val name: String,
+  val videos: List<DeviceVideo>,
 )
 
 @Serializable
@@ -96,6 +110,7 @@ object VideoLibraryScreen : Screen {
 
     var videos by remember { mutableStateOf<List<DeviceVideo>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
+    var openFolder by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(granted) {
       if (!granted) return@LaunchedEffect
@@ -104,12 +119,24 @@ object VideoLibraryScreen : Screen {
       loading = false
     }
 
+    val folders = remember(videos) { groupByFolder(videos) }
+    val inFolder = openFolder
+    val shown = remember(folders, inFolder) {
+      if (inFolder == null) emptyList() else folders.firstOrNull { it.name == inFolder }?.videos.orEmpty()
+    }
+
+    BackHandler(enabled = inFolder != null) { openFolder = null }
+
     Scaffold(
       topBar = {
         TopAppBar(
-          title = { Text("Videos") },
+          title = { Text(inFolder ?: "Videos") },
           navigationIcon = {
-            IconButton(onClick = { backstack.removeLastOrNull() }) {
+            IconButton(
+              onClick = {
+                if (inFolder != null) openFolder = null else backstack.removeLastOrNull()
+              },
+            ) {
               Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
             }
           },
@@ -135,17 +162,17 @@ object VideoLibraryScreen : Screen {
           Text("No videos found on this device")
         }
 
-        else -> LazyVerticalGrid(
-          columns = GridCells.Adaptive(minSize = 160.dp),
-          contentPadding = PaddingValues(8.dp),
-          horizontalArrangement = Arrangement.spacedBy(8.dp),
-          verticalArrangement = Arrangement.spacedBy(8.dp),
-          modifier = Modifier.fillMaxSize().padding(padding),
-        ) {
-          items(videos, key = { it.id }) { video ->
-            VideoCard(video) { HomeScreen.playFile(video.uri.toString(), context) }
-          }
-        }
+        inFolder == null -> FolderGrid(
+          folders = folders,
+          onOpen = { name -> openFolder = name },
+          modifier = Modifier.padding(padding),
+        )
+
+        else -> VideoGrid(
+          videos = shown,
+          onPlay = { video -> HomeScreen.playFile(video.uri.toString(), context) },
+          modifier = Modifier.padding(padding),
+        )
       }
     }
   }
@@ -161,6 +188,7 @@ object VideoLibraryScreen : Screen {
       MediaStore.Video.Media.DISPLAY_NAME,
       MediaStore.Video.Media.DURATION,
       MediaStore.Video.Media.SIZE,
+      COLUMN_BUCKET,
     )
     val out = mutableListOf<DeviceVideo>()
     context.contentResolver.query(
@@ -174,8 +202,10 @@ object VideoLibraryScreen : Screen {
       val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DISPLAY_NAME)
       val durCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DURATION)
       val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.SIZE)
+      val bucketCol = cursor.getColumnIndex(COLUMN_BUCKET)
       while (cursor.moveToNext()) {
         val id = cursor.getLong(idCol)
+        val bucket = if (bucketCol >= 0) cursor.getString(bucketCol) else null
         out.add(
           DeviceVideo(
             id = id,
@@ -183,11 +213,111 @@ object VideoLibraryScreen : Screen {
             name = cursor.getString(nameCol) ?: "video",
             durationMs = cursor.getLong(durCol),
             sizeBytes = cursor.getLong(sizeCol),
+            folder = bucket?.takeIf { it.isNotBlank() } ?: OTHER_FOLDER,
           ),
         )
       }
     }
     return out
+  }
+}
+
+/** One entry per parent folder, folders sorted by name, videos sorted by name. */
+private fun groupByFolder(videos: List<DeviceVideo>): List<VideoFolder> =
+  videos
+    .groupBy { it.folder }
+    .map { (name, items) -> VideoFolder(name, items.sortedBy { it.name.lowercase() }) }
+    .sortedBy { it.name.lowercase() }
+
+@Composable
+private fun FolderGrid(
+  folders: List<VideoFolder>,
+  onOpen: (String) -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  LazyVerticalGrid(
+    columns = GridCells.Adaptive(minSize = 160.dp),
+    contentPadding = PaddingValues(8.dp),
+    horizontalArrangement = Arrangement.spacedBy(8.dp),
+    verticalArrangement = Arrangement.spacedBy(8.dp),
+    modifier = modifier.fillMaxSize(),
+  ) {
+    items(folders, key = { it.name }) { folder ->
+      FolderCard(folder) { onOpen(folder.name) }
+    }
+  }
+}
+
+@Composable
+private fun FolderCard(folder: VideoFolder, onClick: () -> Unit) {
+  val context = LocalContext.current
+  val cover = folder.videos.firstOrNull()
+  val thumb by produceState<ImageBitmap?>(initialValue = null, folder.name, cover?.id) {
+    value = if (cover != null) withContext(Dispatchers.IO) { loadThumb(context, cover) } else null
+  }
+  Column(
+    modifier = Modifier
+      .clip(RoundedCornerShape(12.dp))
+      .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+      .clickable(onClick = onClick),
+  ) {
+    Box(
+      modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f),
+      contentAlignment = Alignment.Center,
+    ) {
+      val bitmap = thumb
+      if (bitmap != null) {
+        Image(
+          bitmap = bitmap,
+          contentDescription = folder.name,
+          contentScale = ContentScale.Crop,
+          modifier = Modifier.fillMaxSize(),
+        )
+      } else {
+        Icon(Icons.Default.Folder, null)
+      }
+      Text(
+        text = "${folder.videos.size}",
+        style = MaterialTheme.typography.labelSmall,
+        modifier = Modifier
+          .align(Alignment.BottomEnd)
+          .padding(6.dp)
+          .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.6f), RoundedCornerShape(4.dp))
+          .padding(horizontal = 4.dp, vertical = 1.dp),
+      )
+    }
+    Row(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
+      Icon(
+        Icons.Default.Folder,
+        null,
+        modifier = Modifier.padding(end = 4.dp),
+      )
+      Text(
+        text = folder.name,
+        style = MaterialTheme.typography.bodySmall,
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis,
+      )
+    }
+  }
+}
+
+@Composable
+private fun VideoGrid(
+  videos: List<DeviceVideo>,
+  onPlay: (DeviceVideo) -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  LazyVerticalGrid(
+    columns = GridCells.Adaptive(minSize = 160.dp),
+    contentPadding = PaddingValues(8.dp),
+    horizontalArrangement = Arrangement.spacedBy(8.dp),
+    verticalArrangement = Arrangement.spacedBy(8.dp),
+    modifier = modifier.fillMaxSize(),
+  ) {
+    items(videos, key = { it.id }) { video ->
+      VideoCard(video) { onPlay(video) }
+    }
   }
 }
 
