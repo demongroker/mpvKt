@@ -41,7 +41,7 @@ data class GhRelease(
  */
 @Suppress("TooManyFunctions")
 object Updater {
-  private const val API = "https://api.github.com/repos/demongroker/mpvKt/releases"
+  private const val API = "https://api.github.com/repos/demongroker/vela/releases"
   private val json = Json { ignoreUnknownKeys = true }
 
   private fun open(url: String, accept: String = "application/vnd.github+json"): HttpURLConnection =
@@ -72,13 +72,40 @@ object Updater {
   fun releaseSha(release: GhRelease): String? =
     Regex("sha:([0-9a-fA-F]{40})").find(release.body.orEmpty())?.groupValues?.get(1)
 
-  fun apkAsset(release: GhRelease): GhAsset? =
-    release.assets.firstOrNull { it.name.endsWith("arm64-v8a-release.apk") }
-      ?: release.assets.firstOrNull { it.name.endsWith(".apk") }
+  fun apkAsset(release: GhRelease): GhAsset? {
+    val name = UpdateLogic.pickApk(release.assets.map { it.name }) ?: return null
+    return release.assets.firstOrNull { it.name == name }
+  }
 
-  fun sha256Asset(release: GhRelease): GhAsset? =
-    release.assets.firstOrNull { it.name.endsWith("arm64-v8a-release.apk.sha256") }
-      ?: release.assets.firstOrNull { it.name.endsWith(".apk.sha256") }
+  fun sha256Asset(release: GhRelease): GhAsset? {
+    val name = UpdateLogic.pickSha(release.assets.map { it.name }) ?: return null
+    return release.assets.firstOrNull { it.name == name }
+  }
+
+  /** Outcome of checking a finished download before it may be installed. */
+  enum class Verify { OK, TRUNCATED, HASH_MISMATCH, NO_HASH }
+
+  /**
+   * A download is only safe to hand to the installer when it is a plausible size
+   * and its SHA-256 matches the hash published with the release. GitHub serves
+   * assets from a CDN that happily hands out truncated files; installing one
+   * fails with "package appears to be invalid".
+   */
+  suspend fun verify(file: File, release: GhRelease): Verify {
+    val sizeOk = file.exists() && UpdateLogic.plausibleSize(file.length())
+    val expected = if (sizeOk) expectedSha(release) else null
+    val actual = if (expected != null) sha256Of(file) else null
+    return when {
+      !sizeOk -> Verify.TRUNCATED
+      expected == null -> Verify.NO_HASH
+      UpdateLogic.matches(expected, actual) -> Verify.OK
+      else -> Verify.HASH_MISMATCH
+    }
+  }
+
+  fun deleteDownload(context: Context, release: GhRelease) {
+    runCatching { downloadedFile(context, release).delete() }
+  }
 
   /** Starts (or resumes) the download. Returns the DownloadManager id. */
   fun startDownload(context: Context, release: GhRelease): Long? {

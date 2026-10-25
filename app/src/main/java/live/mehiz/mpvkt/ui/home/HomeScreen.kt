@@ -37,6 +37,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import com.github.k1rakishou.fsaf.FileManager
 import `is`.xyz.mpv.Utils.PROTOCOLS
+import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import live.mehiz.mpvkt.BuildConfig
 import live.mehiz.mpvkt.R
@@ -58,6 +60,68 @@ import live.mehiz.mpvkt.ui.update.ChangelogScreen
 import live.mehiz.mpvkt.ui.utils.LocalBackStack
 import live.mehiz.mpvkt.update.GhRelease
 import live.mehiz.mpvkt.update.Updater
+
+/** Update banner: verify the download before handing it to the installer. */
+@Composable
+private fun UpdateCard(release: GhRelease, context: Context, onChangelog: () -> Unit) {
+  val scope = rememberCoroutineScope()
+  var downloading by remember { mutableStateOf(false) }
+  var checking by remember { mutableStateOf(false) }
+  val apk = Updater.downloadedFile(context, release)
+  val hasFile = apk.exists() && apk.length() > 0
+
+  fun restart() {
+    Updater.deleteDownload(context, release)
+    downloading = Updater.startDownload(context, release) != null
+  }
+
+  Card(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+    Column(Modifier.padding(12.dp)) {
+      Text(
+        text = "Update available — ${release.tag}",
+        style = MaterialTheme.typography.titleSmall,
+      )
+      Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        TextButton(onClick = onChangelog) { Text("What's new") }
+        if (!hasFile) {
+          Button(
+            enabled = !downloading,
+            onClick = {
+              downloading = Updater.startDownload(context, release) != null
+              Toast.makeText(
+                context,
+                "Downloading in background — it resumes if the connection drops",
+                Toast.LENGTH_LONG,
+              ).show()
+            },
+          ) { Text(if (downloading) "Downloading…" else "Download") }
+        } else {
+          Button(
+            enabled = !checking,
+            onClick = {
+              checking = true
+              scope.launch {
+                val verdict = Updater.verify(apk, release)
+                if (verdict == Updater.Verify.OK) {
+                  Updater.install(context, apk)
+                } else {
+                  val why = when (verdict) {
+                    Updater.Verify.TRUNCATED -> "Download was cut short — fetching it again"
+                    Updater.Verify.HASH_MISMATCH -> "Download was corrupted — fetching it again"
+                    else -> "Couldn't confirm the download — fetching it again"
+                  }
+                  Toast.makeText(context, why, Toast.LENGTH_LONG).show()
+                  restart()
+                }
+                checking = false
+              }
+            },
+          ) { Text(if (checking) "Checking…" else "Install") }
+        }
+      }
+    }
+  }
+}
 
 @Serializable
 object HomeScreen : Screen {
@@ -96,42 +160,13 @@ object HomeScreen : Screen {
       ) {
         val uri = rememberTextFieldState()
         var update by remember { mutableStateOf<GhRelease?>(null) }
-        var downloading by remember { mutableStateOf(false) }
         LaunchedEffect(Unit) {
           val latest = Updater.latest()
           if (latest != null && Updater.releaseSha(latest) != BuildConfig.GIT_SHA) {
             update = latest
           }
         }
-        update?.let { rel ->
-          Card(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
-            Column(Modifier.padding(12.dp)) {
-              Text(
-                text = "Update available — ${rel.tag}",
-                style = MaterialTheme.typography.titleSmall,
-              )
-              Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = { backstack.add(ChangelogScreen) }) { Text("What's new") }
-                val apk = Updater.downloadedFile(context, rel)
-                if (apk.exists() && apk.length() > 0) {
-                  Button(onClick = { Updater.install(context, apk) }) { Text("Install") }
-                } else {
-                  Button(
-                    enabled = !downloading,
-                    onClick = {
-                      downloading = Updater.startDownload(context, rel) != null
-                      Toast.makeText(
-                        context,
-                        "Downloading in background — it resumes if the connection drops",
-                        Toast.LENGTH_LONG,
-                      ).show()
-                    },
-                  ) { Text(if (downloading) "Downloading…" else "Download") }
-                }
-              }
-            }
-          }
-        }
+        update?.let { rel -> UpdateCard(rel, context) { backstack.add(ChangelogScreen) } }
         var isUrlValid by remember { mutableStateOf(true) }
         LaunchedEffect(uri.text) {
           isUrlValid = uri.text.isNotEmpty() || isURLValid(uri.text.toString())
