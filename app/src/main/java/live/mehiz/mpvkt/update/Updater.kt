@@ -39,6 +39,7 @@ data class GhRelease(
  * retries on connection loss and resumes partial files with HTTP Range requests,
  * so a dropped connection never loses the whole APK.
  */
+@Suppress("TooManyFunctions")
 object Updater {
   private const val API = "https://api.github.com/repos/demongroker/mpvKt/releases"
   private val json = Json { ignoreUnknownKeys = true }
@@ -98,7 +99,7 @@ object Updater {
   fun downloadedFile(context: Context, release: GhRelease): File =
     File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "vela-${release.tag}.apk")
 
-  suspend fun expectedSha(context: Context, release: GhRelease): String? = withContext(Dispatchers.IO) {
+  suspend fun expectedSha(release: GhRelease): String? = withContext(Dispatchers.IO) {
     val asset = sha256Asset(release) ?: return@withContext null
     runCatching {
       open(asset.url, "application/octet-stream").inputStream.bufferedReader().use { it.readText() }
