@@ -40,8 +40,24 @@ android {
     }
   }
 
+  signingConfigs {
+    create("release") {
+      val ks = System.getenv("MPVKT_KEYSTORE").orEmpty()
+      if (ks.isNotEmpty() && file(ks).exists()) {
+        storeFile = file(ks)
+        storePassword = System.getenv("MPVKT_STORE_PASSWORD")
+        keyAlias = System.getenv("MPVKT_KEY_ALIAS")
+        keyPassword = System.getenv("MPVKT_KEY_PASSWORD")
+      }
+    }
+  }
+
   buildTypes {
     named("release") {
+      val relSigning = signingConfigs.getByName("release")
+      if (relSigning.storeFile != null) {
+        signingConfig = relSigning
+      }
       isMinifyEnabled = true
       isShrinkResources = false
       proguardFiles(
