@@ -18,7 +18,7 @@ android {
   compileSdk = 36
 
   defaultConfig {
-    applicationId = "live.mehiz.mpvkt"
+    applicationId = "app.vela.player"
     minSdk = 21
     targetSdk = 36
     versionCode = 12
