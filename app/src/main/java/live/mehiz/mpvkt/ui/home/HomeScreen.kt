@@ -7,6 +7,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Info
@@ -52,18 +54,27 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import live.mehiz.mpvkt.BuildConfig
 import live.mehiz.mpvkt.R
+import live.mehiz.mpvkt.preferences.AdvancedPreferences
+import live.mehiz.mpvkt.preferences.preference.collectAsState
 import live.mehiz.mpvkt.presentation.Screen
 import live.mehiz.mpvkt.ui.player.PlayerActivity
 import live.mehiz.mpvkt.ui.preferences.PreferencesScreen
 import live.mehiz.mpvkt.ui.theme.spacing
 import live.mehiz.mpvkt.ui.update.ChangelogScreen
 import live.mehiz.mpvkt.ui.utils.LocalBackStack
+import org.koin.compose.koinInject
 import live.mehiz.mpvkt.update.GhRelease
 import live.mehiz.mpvkt.update.Updater
 
 /** Update banner: verify the download before handing it to the installer. */
 @Composable
-private fun UpdateCard(release: GhRelease, context: Context, onChangelog: () -> Unit) {
+private fun UpdateCard(
+  release: GhRelease,
+  context: Context,
+  onChangelog: () -> Unit,
+  onDismiss: () -> Unit,
+  modifier: Modifier = Modifier,
+) {
   val scope = rememberCoroutineScope()
   var downloading by remember { mutableStateOf(false) }
   var checking by remember { mutableStateOf(false) }
@@ -75,12 +86,19 @@ private fun UpdateCard(release: GhRelease, context: Context, onChangelog: () -> 
     downloading = Updater.startDownload(context, release) != null
   }
 
-  Card(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+  Card(modifier = modifier.fillMaxWidth().padding(12.dp)) {
     Column(Modifier.padding(12.dp)) {
-      Text(
-        text = "Update available — ${release.tag}",
-        style = MaterialTheme.typography.titleSmall,
-      )
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+      ) {
+        Text(
+          text = "Update available — ${release.tag}",
+          style = MaterialTheme.typography.titleSmall,
+          modifier = Modifier.weight(1f),
+        )
+        IconButton(onClick = onDismiss) { Icon(Icons.Default.Clear, null) }
+      }
       Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         TextButton(onClick = onChangelog) { Text("What's new") }
         if (!hasFile) {
@@ -151,40 +169,38 @@ object HomeScreen : Screen {
         )
       },
     ) { padding ->
+      val uri = rememberTextFieldState()
+      var update by remember { mutableStateOf<GhRelease?>(null) }
+      val advancedPreferences = koinInject<AdvancedPreferences>()
+      LaunchedEffect(Unit) {
+        val latest = Updater.latest()
+        if (latest != null && Updater.releaseSha(latest) != BuildConfig.GIT_SHA) {
+          update = latest
+        }
+      }
+      val dismissedTag by advancedPreferences.dismissedUpdateTag.collectAsState()
+      Box(modifier = Modifier.fillMaxSize().padding(padding)) {
       Column(
         modifier = Modifier
-          .fillMaxSize()
-          .padding(padding),
+          .fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
       ) {
-        val uri = rememberTextFieldState()
-        var update by remember { mutableStateOf<GhRelease?>(null) }
-        LaunchedEffect(Unit) {
-          val latest = Updater.latest()
-          if (latest != null && Updater.releaseSha(latest) != BuildConfig.GIT_SHA) {
-            update = latest
-          }
-        }
-        update?.let { rel -> UpdateCard(rel, context) { backstack.add(ChangelogScreen) } }
-        var isUrlValid by remember { mutableStateOf(true) }
-        LaunchedEffect(uri.text) {
-          isUrlValid = uri.text.isNotEmpty() || isURLValid(uri.text.toString())
-        }
+        val showUrlError = UrlValidation.showError(uri.text.toString(), PROTOCOLS.toList())
         OutlinedTextField(
           state = uri,
           label = { Text(stringResource(R.string.home_url_input_label)) },
           supportingText = {
-            Text(if (isUrlValid) "" else stringResource(R.string.home_invalid_protocol))
+            Text(if (showUrlError) stringResource(R.string.home_invalid_protocol) else "")
           },
           trailingIcon = {
-            if (!isUrlValid) Icon(Icons.Filled.Info, null)
+            if (showUrlError) Icon(Icons.Filled.Info, null)
           },
-          isError = !isUrlValid
+          isError = showUrlError,
         )
         Button(
           onClick = { playFile(uri.text.toString(), context) },
-          enabled = uri.text.isNotBlank() && isUrlValid,
+          enabled = UrlValidation.isPlayable(uri.text.toString(), PROTOCOLS.toList()),
         ) {
           Row(
             horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.smaller),
@@ -218,26 +234,29 @@ object HomeScreen : Screen {
           if (it == null) return@rememberLauncherForActivityResult
           backstack.add(FilePickerScreen(fileManager.fromUri(it)!!.getFullPath()))
         }
-        OutlinedButton(onClick = { directoryPicker.launch(null) }) {
+        TextButton(onClick = { directoryPicker.launch(null) }) {
           Row(
             horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.smaller),
             verticalAlignment = Alignment.CenterVertically,
           ) {
             Icon(Icons.Default.FolderOpen, null)
-            Text(text = stringResource(R.string.home_open_file_picker))
+            Text(text = "Browse a folder instead")
           }
         }
       }
+      update?.let { rel ->
+        if (dismissedTag != rel.tag) {
+          UpdateCard(
+            release = rel,
+            context = context,
+            onChangelog = { backstack.add(ChangelogScreen) },
+            onDismiss = { advancedPreferences.dismissedUpdateTag.set(rel.tag) },
+            modifier = Modifier.align(Alignment.BottomCenter),
+          )
+        }
+      }
+      }
     }
-  }
-
-  // Basically a copy of:
-  // https://github.com/mpv-android/mpv-android/blob/32cbff3cedea73b4616b34542cb95bf1d00504cc/app/src/main/java/is/xyz/mpv/Utils.kt#L406
-  private fun isURLValid(url: String): Boolean {
-    val uri = url.toUri()
-    return uri.isHierarchical && !uri.isRelative &&
-      !(uri.host.isNullOrBlank() && uri.path.isNullOrBlank()) &&
-      PROTOCOLS.contains(uri.scheme)
   }
 
   fun playFile(

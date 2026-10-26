@@ -11,4 +11,7 @@ class AdvancedPreferences(preferenceStore: PreferenceStore) {
   val verboseLogging = preferenceStore.getBoolean("verbose_logging", BuildConfig.BUILD_TYPE != "release")
 
   val enabledStatisticsPage = preferenceStore.getInt("enabled_stats_page", 0)
+
+  /** Update tag the owner dismissed, so the banner stays gone for that version. */
+  val dismissedUpdateTag = preferenceStore.getString("update_dismissed_tag")
 }
