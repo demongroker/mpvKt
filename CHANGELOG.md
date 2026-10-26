@@ -4,6 +4,10 @@ Newest first. Each entry describes one reviewable step.
 
 ## Unreleased
 
+Nothing yet.
+
+## Released
+
 ### 0.1.12 — the library becomes the home screen
 - **feat(resume): per-file positions in their own table.** `resume_state` is keyed
   by MediaStore id plus a path hash (so same-named files in two folders stay
