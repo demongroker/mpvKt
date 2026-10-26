@@ -364,6 +364,11 @@ class PlayerViewModel(
     playerUpdate.update { PlayerUpdates.AspectRatio }
   }
 
+  /** Relative seek used by the optional skip buttons (positive = forward). */
+  fun seekRelative(seconds: Int) {
+    MPVLib.command("seek", seconds, "relative")
+  }
+
   fun cycleScreenRotations() {
     activity.requestedOrientation = when (activity.requestedOrientation) {
       ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE,

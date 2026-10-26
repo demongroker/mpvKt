@@ -37,8 +37,6 @@ fun TopRightPlayerControls(
   onMoreClick: () -> Unit,
   onMoreLongClick: () -> Unit,
   // queue and rotation
-  hasNext: Boolean = false,
-  onNextClick: () -> Unit = {},
   isShuffled: Boolean = false,
   onShuffleClick: () -> Unit = {},
   rotationMode: RotationMode = RotationMode.Auto,
@@ -71,12 +69,6 @@ fun TopRightPlayerControls(
       onClick = onAudioClick,
       onLongClick = onAudioLongClick,
     )
-    if (hasNext) {
-      ControlsButton(
-        Icons.Default.SkipNext,
-        onClick = onNextClick,
-      )
-    }
     ControlsButton(
       if (isShuffled) Icons.Default.ShuffleOn else Icons.Default.Shuffle,
       onClick = onShuffleClick,

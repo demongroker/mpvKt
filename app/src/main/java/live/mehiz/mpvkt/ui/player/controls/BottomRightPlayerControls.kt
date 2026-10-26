@@ -56,12 +56,14 @@ fun BottomRightPlayerControls(
       ControlsButton(
         Icons.Default.PictureInPictureAlt,
         onClick = onPipClick,
+        title = PlayerControlLabels.PICTURE_IN_PICTURE,
       )
     }
 
     ControlsButton(
       Icons.Default.AspectRatio,
       onClick = onAspectClick,
+      title = PlayerControlLabels.VIDEO_ASPECT_RATIO,
     )
   }
 }

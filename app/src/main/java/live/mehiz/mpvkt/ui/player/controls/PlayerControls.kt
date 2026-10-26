@@ -28,6 +28,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.Replay10
+import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -105,6 +109,9 @@ fun PlayerControls(
   onBackPress: () -> Unit,
   onPlayNext: () -> Unit = {},
   hasNext: Boolean = false,
+  onPlayPrevious: () -> Unit = {},
+  hasPrevious: Boolean = false,
+  showSkipButtons: Boolean = false,
   isShuffled: Boolean = false,
   onToggleShuffle: () -> Unit = {},
   rotationMode: RotationMode = RotationMode.Auto,
@@ -383,6 +390,26 @@ fun PlayerControls(
           val showLoadingCircle by playerPreferences.showLoadingCircle.collectAsState()
           val icon = AnimatedImageVector.animatedVectorResource(R.drawable.anim_play_to_pause)
           val interaction = remember { MutableInteractionSource() }
+          Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+          ) {
+          if (controlsShown && !areControlsLocked) {
+            if (PlayerControlVisibility.showPrevious(hasPrevious)) {
+              ControlsButton(
+                Icons.Default.SkipPrevious,
+                onClick = onPlayPrevious,
+                title = PlayerControlLabels.PREVIOUS_FILE,
+              )
+            }
+            if (PlayerControlVisibility.showSkipButtons(showSkipButtons)) {
+              ControlsButton(
+                Icons.Default.Replay10,
+                onClick = { viewModel.seekRelative(-10) },
+                title = PlayerControlLabels.SKIP_BACK_10,
+              )
+            }
+          }
           when {
             gestureSeekAmount != null -> {
               Text(
@@ -420,6 +447,23 @@ fun PlayerControls(
                 .padding(MaterialTheme.spacing.medium),
               contentDescription = null,
             )
+          }
+          if (controlsShown && !areControlsLocked) {
+            if (PlayerControlVisibility.showSkipButtons(showSkipButtons)) {
+              ControlsButton(
+                Icons.Default.Forward10,
+                onClick = { viewModel.seekRelative(10) },
+                title = PlayerControlLabels.SKIP_FORWARD_10,
+              )
+            }
+            if (PlayerControlVisibility.showNext(hasNext)) {
+              ControlsButton(
+                Icons.Default.SkipNext,
+                onClick = onPlayNext,
+                title = PlayerControlLabels.NEXT_FILE,
+              )
+            }
+          }
           }
         }
         AnimatedVisibility(
@@ -520,8 +564,6 @@ fun PlayerControls(
             onAudioLongClick = { onOpenPanel(Panels.AudioDelay) },
             onMoreClick = { onOpenSheet(Sheets.More) },
             onMoreLongClick = { onOpenPanel(Panels.VideoFilters) },
-            hasNext = hasNext,
-            onNextClick = onPlayNext,
             isShuffled = isShuffled,
             onShuffleClick = onToggleShuffle,
             rotationMode = rotationMode,

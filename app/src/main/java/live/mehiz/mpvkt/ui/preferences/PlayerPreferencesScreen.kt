@@ -71,6 +71,27 @@ object PlayerPreferencesScreen : Screen {
             title = { Text(text = stringResource(id = R.string.pref_player_orientation)) },
             summary = { Text(text = stringResource(id = orientation.titleRes)) },
           )
+          val autoPlayNext by preferences.autoPlayNext.collectAsState()
+          SwitchPreference(
+            value = autoPlayNext,
+            onValueChange = preferences.autoPlayNext::set,
+            title = { Text("Play the next file automatically") },
+            summary = { Text("When a file ends, continue with the next one in the folder") },
+          )
+          val loopFolder by preferences.loopFolder.collectAsState()
+          SwitchPreference(
+            value = loopFolder,
+            onValueChange = preferences.loopFolder::set,
+            title = { Text("Loop the folder") },
+            summary = { Text("Keep playing after the last file in the folder") },
+          )
+          val showSkipButtons by preferences.showSkipButtons.collectAsState()
+          SwitchPreference(
+            value = showSkipButtons,
+            onValueChange = preferences.showSkipButtons::set,
+            title = { Text("Show skip ±10 s buttons") },
+            summary = { Text("Puts back and forward 10 seconds beside Play") },
+          )
           val drawOverDisplayCutout by preferences.drawOverDisplayCutout.collectAsState()
           SwitchPreference(
             value = drawOverDisplayCutout,

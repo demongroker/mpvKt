@@ -22,6 +22,9 @@ class PlayerPreferences(
 
   /** Keep going after the last file in the folder. */
   val loopFolder = preferenceStore.getBoolean("player_loop_folder", false)
+
+  /** Show the ±10 s skip buttons beside Play in the centre row. */
+  val showSkipButtons = preferenceStore.getBoolean("player_show_skip_buttons", false)
   val invertDuration = preferenceStore.getBoolean("invert_duration")
   val drawOverDisplayCutout = preferenceStore.getBoolean("draw_over_cutout", true)
 

@@ -6,6 +6,21 @@ Newest first. Each entry describes one reviewable step.
 
 Nothing yet.
 
+### 0.1.15 — player UI fixes
+- **fix(more sheet): labels are no longer squeezed.** The title has its own line and
+  the actions sit in a wrapping row, each with a minimum width, wrapping at word
+  boundaries over at most two lines — so "Delete file" can no longer render one
+  letter per line on a narrow portrait screen at large font scale.
+- **feat(player): Previous file button** in the centre row, shown only when the
+  queue has an item before the current one, mirroring Next (which moved from the
+  top-right row into the centre row so the pair is symmetric). Double-tap seek
+  (10 s back / forward) is untouched.
+- **feat(player): optional skip buttons.** Preferences → Player gains "Show skip
+  ±10 s buttons" (default off), which puts back/forward 10 s beside Play, plus the
+  missing "Play the next file automatically" and "Loop the folder" switches.
+- **fix(a11y): the Picture-in-picture and Video aspect ratio buttons now announce
+  themselves** to TalkBack; behaviour and position are unchanged.
+
 ### 0.1.14 — playback fixes
 - **fix(rotate): the button now actually changes orientation.** Auto mode asks for
   `SCREEN_ORIENTATION_SENSOR` (sensor-driven, follows the screen); Locked mode sets

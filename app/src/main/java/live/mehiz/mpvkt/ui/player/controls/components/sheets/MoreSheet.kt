@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -50,12 +51,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import `is`.xyz.mpv.MPVLib
 import kotlinx.collections.immutable.ImmutableList
 import live.mehiz.mpvkt.R
+import live.mehiz.mpvkt.ui.player.controls.MoreSheetLayout
 import live.mehiz.mpvkt.database.entities.CustomButtonEntity
 import live.mehiz.mpvkt.preferences.AdvancedPreferences
 import live.mehiz.mpvkt.preferences.AudioChannels
@@ -95,29 +98,30 @@ fun MoreSheet(
         .verticalScroll(rememberScrollState()),
       verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.smaller),
     ) {
-      Row(
+      // Title on its own line, actions in a wrapping row with a minimum width each:
+      // squeezing them beside the title split labels one letter per line.
+      Text(
+        text = stringResource(id = R.string.player_sheets_more_title),
+        style = MaterialTheme.typography.headlineMedium,
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
+      )
+      FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.smaller),
+        verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.extraSmall),
       ) {
-        Text(
-          text = stringResource(id = R.string.player_sheets_more_title),
-          style = MaterialTheme.typography.headlineMedium,
-        )
-        Row(
-          verticalAlignment = Alignment.CenterVertically,
+        val backgroundPlayback by playerPreferences.automaticBackgroundPlayback.collectAsState()
+        IconToggleButton(
+          checked = backgroundPlayback,
+          onCheckedChange = { playerPreferences.automaticBackgroundPlayback.set(it) },
         ) {
-          val backgroundPlayback by playerPreferences.automaticBackgroundPlayback.collectAsState()
-          IconToggleButton(
-            checked = backgroundPlayback,
-            onCheckedChange = { playerPreferences.automaticBackgroundPlayback.set(it) }
-          ) {
-            Icon(
-              if (backgroundPlayback) Icons.Default.Headset else Icons.Default.HeadsetOff,
-              null
-            )
-          }
-          var isSleepTimerDialogShown by remember { mutableStateOf(false) }
+          Icon(
+            if (backgroundPlayback) Icons.Default.Headset else Icons.Default.HeadsetOff,
+            "Background playback",
+          )
+        }
+        var isSleepTimerDialogShown by remember { mutableStateOf(false) }
+        Box(modifier = Modifier.widthIn(min = MoreSheetLayout.MIN_ROW_WIDTH_DP.dp)) {
           TextButton(onClick = { isSleepTimerDialogShown = true }) {
             Row(
               verticalAlignment = Alignment.CenterVertically,
@@ -125,8 +129,7 @@ fun MoreSheet(
             ) {
               Icon(imageVector = Icons.Outlined.Timer, contentDescription = null)
               Text(
-                text =
-                if (remainingTime == 0) {
+                text = if (remainingTime == 0) {
                   stringResource(R.string.timer_title)
                 } else {
                   stringResource(
@@ -134,26 +137,38 @@ fun MoreSheet(
                     DateUtils.formatElapsedTime(remainingTime.toLong()),
                   )
                 },
+                softWrap = true,
+                maxLines = MoreSheetLayout.MAX_LABEL_LINES,
+                overflow = TextOverflow.Ellipsis,
               )
-              if (isSleepTimerDialogShown) {
-                TimePickerDialog(
-                  remainingTime = remainingTime,
-                  onDismissRequest = { isSleepTimerDialogShown = false },
-                  onTimeSelect = onStartTimer,
-                )
-              }
             }
           }
+          if (isSleepTimerDialogShown) {
+            TimePickerDialog(
+              remainingTime = remainingTime,
+              onDismissRequest = { isSleepTimerDialogShown = false },
+              onTimeSelect = onStartTimer,
+            )
+          }
+        }
+        Box(modifier = Modifier.widthIn(min = MoreSheetLayout.MIN_ROW_WIDTH_DP.dp)) {
           TextButton(onClick = onEnterFiltersPanel) {
             Row(
               verticalAlignment = Alignment.CenterVertically,
               horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.extraSmall),
             ) {
               Icon(imageVector = Icons.Default.Tune, contentDescription = null)
-              Text(text = stringResource(id = R.string.player_sheets_filters_title))
+              Text(
+                text = stringResource(id = R.string.player_sheets_filters_title),
+                softWrap = true,
+                maxLines = MoreSheetLayout.MAX_LABEL_LINES,
+                overflow = TextOverflow.Ellipsis,
+              )
             }
           }
-          // Destructive: the confirmation dialogs (ours, then the system's) come next.
+        }
+        // Destructive: the confirmation dialogs (ours, then the system's) come next.
+        Box(modifier = Modifier.widthIn(min = MoreSheetLayout.MIN_ROW_WIDTH_DP.dp)) {
           TextButton(onClick = onDeleteFile) {
             Row(
               verticalAlignment = Alignment.CenterVertically,
@@ -167,6 +182,9 @@ fun MoreSheet(
               Text(
                 text = "Delete file",
                 color = MaterialTheme.colorScheme.error,
+                softWrap = true,
+                maxLines = MoreSheetLayout.MAX_LABEL_LINES,
+                overflow = TextOverflow.Ellipsis,
               )
             }
           }

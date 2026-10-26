@@ -45,6 +45,39 @@ object QueueAdvance {
     return tail.firstOrNull { it.fileKey !in failedKeys }
   }
 
+  /**
+   * The item before [currentKey], so the Previous button can mirror Next. Returns
+   * null at the top of the folder unless [loop] is on, in which case it wraps.
+   */
+  fun previous(
+    queue: PlaybackQueue?,
+    currentKey: String,
+    currentUri: String,
+    currentPath: String,
+    currentName: String,
+    loop: Boolean,
+  ): QueueItem? {
+    if (queue == null) return null
+    val order = QueueLogic.ordered(queue)
+    if (order.isEmpty()) return null
+    val index = indexOfCurrent(order, currentKey, currentUri, currentPath, currentName)
+    val target = when {
+      index < 0 -> null
+      index == 0 -> if (loop) order.last() else null
+      else -> order[index - 1]
+    }
+    return target
+  }
+
+  fun hasPrevious(
+    queue: PlaybackQueue?,
+    currentKey: String,
+    currentUri: String,
+    currentPath: String,
+    currentName: String,
+    loop: Boolean,
+  ): Boolean = previous(queue, currentKey, currentUri, currentPath, currentName, loop) != null
+
   /** Builds a queue from a folder listing when the player was started without one. */
   fun queueFromFolder(
     videos: List<LibraryVideo>,

@@ -83,6 +83,43 @@ class QueueAdvanceTest {
   }
 
   @Test
+  fun previousExistsOnlyWhenSomethingComesBefore() {
+    val films = queueOf("a.mkv", "b.mkv", "c.mkv")
+    assertNull(
+      QueueAdvance.previous(films, films.items[0].fileKey, "", "", "", loop = false),
+    )
+    assertEquals(
+      "a.mkv",
+      QueueAdvance.previous(films, films.items[1].fileKey, "", "", "", loop = false)?.name,
+    )
+    assertFalse(QueueAdvance.hasPrevious(films, films.items[0].fileKey, "", "", "", loop = false))
+    assertTrue(QueueAdvance.hasPrevious(films, films.items[2].fileKey, "", "", "", loop = false))
+  }
+
+  @Test
+  fun previousStepsBackwardsInQueueOrder() {
+    val films = queueOf("a.mkv", "b.mkv", "c.mkv")
+    assertEquals("b.mkv", QueueAdvance.previous(films, films.items[2].fileKey, "", "", "", loop = false)?.name)
+    // Matching stays loose here too.
+    assertEquals(
+      "b.mkv",
+      QueueAdvance.previous(films, "foreign", "", films.items[2].path, "", loop = false)?.name,
+    )
+  }
+
+  @Test
+  fun previousWrapsToTheLastItemOnlyWhenLooping() {
+    val films = queueOf("a.mkv", "b.mkv")
+    assertNull(QueueAdvance.previous(films, films.items[0].fileKey, "", "", "", loop = false))
+    assertEquals("b.mkv", QueueAdvance.previous(films, films.items[0].fileKey, "", "", "", loop = true)?.name)
+  }
+
+  @Test
+  fun previousWithoutAQueueIsNothing() {
+    assertNull(QueueAdvance.previous(null, "a", "u", "p", "n", loop = true))
+  }
+
+  @Test
   fun theFolderOfTheCurrentFileCanBeFoundToRebuildAQueue() {
     val videos = listOf(video(1, "a.mkv"), video(2, "b.mkv", folder = "Anime"))
     assertEquals("Films", QueueAdvance.folderOf(videos, videos[0].fileKey, "", "", ""))

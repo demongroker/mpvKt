@@ -165,6 +165,9 @@ class PlayerActivity : AppCompatActivity() {
           onBackPress = ::finish,
           onPlayNext = { playNextInQueue(currentFailedKeys()) },
           hasNext = nextQueueItem() != null,
+          onPlayPrevious = ::playPreviousInQueue,
+          hasPrevious = hasPreviousItem(),
+          showSkipButtons = playerPreferences.showSkipButtons.get(),
           isShuffled = queue?.shuffled == true,
           onToggleShuffle = ::toggleShuffle,
           rotationMode = rotationMode,
@@ -662,6 +665,33 @@ class PlayerActivity : AppCompatActivity() {
     failedKeys = currentFailedKeys(),
     loop = playerPreferences.loopFolder.get(),
   )
+
+  private fun hasPreviousItem(): Boolean = QueueAdvance.hasPrevious(
+    queue = queue,
+    currentKey = resumeFileKey,
+    currentUri = currentUriString(),
+    currentPath = currentPathString(),
+    currentName = currentNameString(),
+    loop = playerPreferences.loopFolder.get(),
+  )
+
+  /** Mirrors playNextInQueue: steps back one item in the same queue. */
+  private fun playPreviousInQueue() {
+    val item = QueueAdvance.previous(
+      queue = queue,
+      currentKey = resumeFileKey,
+      currentUri = currentUriString(),
+      currentPath = currentPathString(),
+      currentName = currentNameString(),
+      loop = playerPreferences.loopFolder.get(),
+    )
+    if (item == null) {
+      Log.d(QUEUE_TAG, "no previous item (queue=${queue?.items?.size ?: 0})")
+      return
+    }
+    Log.d(QUEUE_TAG, "going back to ${item.name}")
+    startQueueItem(item, currentFailedKeys())
+  }
 
   private fun currentFailedKeys(): Set<String> =
     intent.getStringExtra(EXTRA_FAILED_KEYS)
