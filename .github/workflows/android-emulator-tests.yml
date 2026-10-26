@@ -137,6 +137,7 @@ jobs:
             exit 1
           fi
           echo "resolved: $(cat report/apk_path.txt)"
+          printf '%s' "${{ inputs.test_command }}" > report/test_command.txt
 
       - name: Emulator, install, screenshot, tests
         uses: reactivecircus/android-emulator-runner@v2
@@ -146,33 +147,9 @@ jobs:
           target: google_apis
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: |
-            set -x
-            APK="$(tail -1 report/apk_path.txt)"
-            adb wait-for-device
-            echo "boot_completed=$(adb shell getprop sys.boot_completed | tr -d '\r')"
-            adb shell settings put global window_animation_scale 0 || true
-            adb install -r -g "$APK" 2>&1 | tee -a report/install.txt
-            adb shell am start -n app.vela.player/live.mehiz.mpvkt.MainActivity 2>&1 | tee -a report/launch.txt
-            sleep 12
-            adb exec-out screencap -p > report/home.png
-            adb shell dumpsys window 2>/dev/null | grep -E 'mCurrentFocus|mFocusedApp' | head -5 >> report/launch.txt || true
-            adb logcat -d -t 400 > report/logcat.txt || true
-            TEST_COMMAND="${{ inputs.test_command }}"
-            if [ -n "$TEST_COMMAND" ]; then
-              echo "running: $TEST_COMMAND"
-              set +e
-              eval "$TEST_COMMAND" 2>&1 | tee -a report/test.txt
-              echo "test_exit=$?" | tee -a report/test.txt
-              set -e
-            else
-              echo "no test_command given — install + screenshot only" | tee report/test.txt
-            fi
-            mkdir -p report/androidtest
-            cp -r app/build/reports/androidTests report/androidtest/ 2>/dev/null || true
-            cp -r app/build/outputs/androidTest-results report/androidtest/ 2>/dev/null || true
-            adb logcat -d > report/logcat-full.txt || true
-            ls -la report
+          # The action runs each line of `script` in its own shell, so the whole
+          # sequence lives in a file and is invoked once.
+          script: bash .github/scripts/emulator-run.sh
 
       - name: Upload report
         if: always()
