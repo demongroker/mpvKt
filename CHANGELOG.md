@@ -4,6 +4,25 @@ Newest first. Each entry describes one reviewable step.
 
 ## Unreleased
 
+### 0.1.12 — the library becomes the home screen
+- **feat(resume): per-file positions in their own table.** `resume_state` is keyed
+  by MediaStore id plus a path hash (so same-named files in two folders stay
+  apart) and stores position, duration, last-played and a completed flag.
+  Database version 6 with a migration; the player saves on pause, on stop and
+  every 5 seconds, and seeks back to the stored position when it is 10 s+ in and
+  not finished. Tests cover the write/read contract and the migration DDL.
+- **feat(library): folder-first home.** Folders with a cover thumbnail and item
+  count, expandable into a grid of videos that show thumbnail, duration and a
+  resume bar. Pin a folder to the top, hide it, or sort by name, date, size or
+  last played; search filters folders and videos at once.
+- **feat(library): one repository, one exclusion point.** All media queries go
+  through `MediaStoreLibraryRepository`; `LibraryExclusions` (hidden folders, plus
+  file keys) is the single filter, and `LibraryExclusionSource` is the seam the
+  locked-folder feature will bind to later. Nothing else knows what locking is.
+- **feat(library): lazy folder paging and an LRU thumbnail cache** so a large
+  library does not decode the same frame twice.
+- **feat(home): URL playback and the file pickers moved behind the + button.**
+
 ### 0.1.11
 - **fix(update): the banner no longer offers the version you already have.**
   The release tag is parsed into major.minor.patch plus the `-vela<N>` build and

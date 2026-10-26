@@ -16,19 +16,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.FileOpen
-import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -54,18 +50,19 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import live.mehiz.mpvkt.BuildConfig
 import live.mehiz.mpvkt.R
+import live.mehiz.mpvkt.library.LibraryHome
+import live.mehiz.mpvkt.library.playLibraryVideo
 import live.mehiz.mpvkt.preferences.AdvancedPreferences
 import live.mehiz.mpvkt.preferences.preference.collectAsState
 import live.mehiz.mpvkt.presentation.Screen
 import live.mehiz.mpvkt.ui.player.PlayerActivity
 import live.mehiz.mpvkt.ui.preferences.PreferencesScreen
-import live.mehiz.mpvkt.ui.theme.spacing
 import live.mehiz.mpvkt.ui.update.ChangelogScreen
 import live.mehiz.mpvkt.ui.utils.LocalBackStack
-import live.mehiz.mpvkt.update.UpdateLogic
-import org.koin.compose.koinInject
 import live.mehiz.mpvkt.update.GhRelease
+import live.mehiz.mpvkt.update.UpdateLogic
 import live.mehiz.mpvkt.update.Updater
+import org.koin.compose.koinInject
 
 /** Update banner: verify the download before handing it to the installer. */
 @Composable
@@ -142,6 +139,37 @@ private fun UpdateCard(
   }
 }
 
+/** URL playback lives behind the + button now, so it opens in a dialog. */
+@Composable
+private fun UrlDialog(onDismiss: () -> Unit, onPlay: (String) -> Unit) {
+  val url = rememberTextFieldState()
+  val text = url.text.toString()
+  val showError = UrlValidation.showError(text, PROTOCOLS.toList())
+  AlertDialog(
+    onDismissRequest = onDismiss,
+    title = { Text(stringResource(R.string.home_open_url)) },
+    text = {
+      OutlinedTextField(
+        state = url,
+        singleLine = true,
+        label = { Text(stringResource(R.string.home_url_input_label)) },
+        supportingText = {
+          Text(if (showError) stringResource(R.string.home_invalid_protocol) else "")
+        },
+        trailingIcon = { if (showError) Icon(Icons.Filled.Info, null) },
+        isError = showError,
+      )
+    },
+    confirmButton = {
+      TextButton(
+        enabled = UrlValidation.isPlayable(text, PROTOCOLS.toList()),
+        onClick = { onPlay(text) },
+      ) { Text(stringResource(R.string.home_open_url)) }
+    },
+    dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+  )
+}
+
 @Serializable
 object HomeScreen : Screen {
   @OptIn(ExperimentalMaterial3Api::class)
@@ -149,14 +177,43 @@ object HomeScreen : Screen {
   override fun Content() {
     val context = LocalContext.current
     val backstack = LocalBackStack.current
+    val advancedPreferences = koinInject<AdvancedPreferences>()
+    var update by remember { mutableStateOf<GhRelease?>(null) }
+    var urlDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+      // Re-checked on every launch; no "update available" flag is cached, so a
+      // stale answer can never keep the banner alive after an update.
+      val latest = Updater.latest()
+      val available = latest != null && UpdateLogic.isUpdateAvailable(
+        remoteTag = latest.tag,
+        installedVersionName = BuildConfig.VERSION_NAME,
+        installedTag = BuildConfig.GIT_TAG,
+        installedVersionCode = BuildConfig.VERSION_CODE,
+      )
+      update = if (available) latest else null
+    }
+    val dismissedTag by advancedPreferences.dismissedUpdateTag.collectAsState()
+
+    val documentPicker = rememberLauncherForActivityResult(
+      ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+      if (uri == null) return@rememberLauncherForActivityResult
+      playFile(uri.toString(), context)
+    }
+    val fileManager = FileManager(context)
+    val directoryPicker = rememberLauncherForActivityResult(
+      ActivityResultContracts.OpenDocumentTree(),
+    ) { uri ->
+      if (uri == null) return@rememberLauncherForActivityResult
+      backstack.add(FilePickerScreen(fileManager.fromUri(uri)!!.getFullPath()))
+    }
+
     Scaffold(
       topBar = {
         TopAppBar(
           title = { Text(text = stringResource(id = R.string.app_name)) },
           actions = {
-            IconButton(onClick = { backstack.add(VideoLibraryScreen) }) {
-              Icon(Icons.Default.VideoLibrary, null)
-            }
             IconButton(onClick = { backstack.add(PreferencesScreen) }) {
               Icon(Icons.Default.Settings, null)
             }
@@ -170,99 +227,35 @@ object HomeScreen : Screen {
         )
       },
     ) { padding ->
-      val uri = rememberTextFieldState()
-      var update by remember { mutableStateOf<GhRelease?>(null) }
-      val advancedPreferences = koinInject<AdvancedPreferences>()
-      LaunchedEffect(Unit) {
-        // Re-checked on every launch; no "update available" flag is cached, so a
-        // stale answer can never keep the banner alive after an update.
-        val latest = Updater.latest()
-        val available = latest != null && UpdateLogic.isUpdateAvailable(
-          remoteTag = latest.tag,
-          installedVersionName = BuildConfig.VERSION_NAME,
-          installedTag = BuildConfig.GIT_TAG,
-          installedVersionCode = BuildConfig.VERSION_CODE,
-        )
-        update = if (available) latest else null
-      }
-      val dismissedTag by advancedPreferences.dismissedUpdateTag.collectAsState()
       Box(modifier = Modifier.fillMaxSize().padding(padding)) {
-      Column(
-        modifier = Modifier
-          .fillMaxSize(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-      ) {
-        val showUrlError = UrlValidation.showError(uri.text.toString(), PROTOCOLS.toList())
-        OutlinedTextField(
-          state = uri,
-          label = { Text(stringResource(R.string.home_url_input_label)) },
-          supportingText = {
-            Text(if (showUrlError) stringResource(R.string.home_invalid_protocol) else "")
-          },
-          trailingIcon = {
-            if (showUrlError) Icon(Icons.Filled.Info, null)
-          },
-          isError = showUrlError,
+        LibraryHome(
+          onPlayVideo = { video -> playLibraryVideo(context, video) },
+          onOpenUrl = { urlDialog = true },
+          onOpenFile = { documentPicker.launch(arrayOf("*/*")) },
+          onBrowseFolder = { directoryPicker.launch(null) },
         )
-        Button(
-          onClick = { playFile(uri.text.toString(), context) },
-          enabled = UrlValidation.isPlayable(uri.text.toString(), PROTOCOLS.toList()),
-        ) {
-          Row(
-            horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.smaller),
-            verticalAlignment = Alignment.CenterVertically,
-          ) {
-            Icon(Icons.Default.Link, null)
-            Text(text = stringResource(R.string.home_open_url))
-          }
-        }
-        val documentPicker = rememberLauncherForActivityResult(
-          ActivityResultContracts.OpenDocument(),
-        ) {
-          if (it == null) return@rememberLauncherForActivityResult
-          playFile(it.toString(), context)
-        }
-        OutlinedButton(
-          onClick = { documentPicker.launch(arrayOf("*/*")) },
-        ) {
-          Row(
-            horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.smaller),
-            verticalAlignment = Alignment.CenterVertically,
-          ) {
-            Icon(Icons.Default.FileOpen, null)
-            Text(text = stringResource(R.string.home_pick_file))
-          }
-        }
-        val fileManager = FileManager(context)
-        val directoryPicker = rememberLauncherForActivityResult(
-          ActivityResultContracts.OpenDocumentTree(),
-        ) {
-          if (it == null) return@rememberLauncherForActivityResult
-          backstack.add(FilePickerScreen(fileManager.fromUri(it)!!.getFullPath()))
-        }
-        TextButton(onClick = { directoryPicker.launch(null) }) {
-          Row(
-            horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.smaller),
-            verticalAlignment = Alignment.CenterVertically,
-          ) {
-            Icon(Icons.Default.FolderOpen, null)
-            Text(text = "Browse a folder instead")
+        update?.let { rel ->
+          if (dismissedTag != rel.tag) {
+            UpdateCard(
+              release = rel,
+              context = context,
+              onChangelog = { backstack.add(ChangelogScreen) },
+              onDismiss = { advancedPreferences.dismissedUpdateTag.set(rel.tag) },
+              modifier = Modifier.align(Alignment.BottomCenter),
+            )
           }
         }
       }
-      update?.let { rel ->
-        if (dismissedTag != rel.tag) {
-          UpdateCard(
-            release = rel,
-            context = context,
-            onChangelog = { backstack.add(ChangelogScreen) },
-            onDismiss = { advancedPreferences.dismissedUpdateTag.set(rel.tag) },
-            modifier = Modifier.align(Alignment.BottomCenter),
-          )
-        }
-      }
-      }
+    }
+
+    if (urlDialog) {
+      UrlDialog(
+        onDismiss = { urlDialog = false },
+        onPlay = { url ->
+          urlDialog = false
+          playFile(url, context)
+        },
+      )
     }
   }
 

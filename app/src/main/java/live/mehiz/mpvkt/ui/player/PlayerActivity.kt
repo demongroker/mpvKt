@@ -46,12 +46,18 @@ import `is`.xyz.mpv.MPVLib
 import `is`.xyz.mpv.MPVNode
 import `is`.xyz.mpv.Utils
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import live.mehiz.mpvkt.database.entities.CustomButtonEntity
 import live.mehiz.mpvkt.database.entities.PlaybackStateEntity
+import live.mehiz.mpvkt.database.entities.ResumeStateEntity
 import live.mehiz.mpvkt.databinding.PlayerLayoutBinding
 import live.mehiz.mpvkt.domain.playbackstate.repository.PlaybackStateRepository
+import live.mehiz.mpvkt.domain.resume.repository.ResumeRepository
+import live.mehiz.mpvkt.library.LibraryLogic
 import live.mehiz.mpvkt.preferences.AdvancedPreferences
 import live.mehiz.mpvkt.preferences.AudioPreferences
 import live.mehiz.mpvkt.preferences.GesturePreferences
@@ -69,6 +75,8 @@ class PlayerActivity : AppCompatActivity() {
   private val binding by lazy { PlayerLayoutBinding.inflate(layoutInflater) }
   private val playerObserver by lazy { PlayerObserver(this) }
   private val playbackStateRepository: PlaybackStateRepository by inject()
+  private val resumeRepository: ResumeRepository by inject()
+  private var resumeFileKey: String = ""
   val player by lazy { binding.player }
   val windowInsetsController by lazy { WindowCompat.getInsetsController(window, window.decorView) }
   val audioManager by lazy { getSystemService(AUDIO_SERVICE) as AudioManager }
@@ -115,6 +123,8 @@ class PlayerActivity : AppCompatActivity() {
     setupMPV()
     setupAudio()
     setupMediaSession()
+    setupResumeKey(intent)
+    startResumeTicker()
     getPlayableUri(intent)?.let(player::playFile)
     setOrientation()
 
@@ -166,6 +176,7 @@ class PlayerActivity : AppCompatActivity() {
       viewModel.pause()
     }
     saveVideoPlaybackState(fileName)
+    saveResumeState()
     super.onPause()
   }
 
@@ -176,6 +187,7 @@ class PlayerActivity : AppCompatActivity() {
 
   override fun onStop() {
     saveVideoPlaybackState(fileName)
+    saveResumeState()
     if (!serviceBound && playerPreferences.automaticBackgroundPlayback.get()) {
       startBackgroundPlayback()
     } else {
@@ -559,12 +571,63 @@ class PlayerActivity : AppCompatActivity() {
         }
         lifecycleScope.launch(Dispatchers.IO) {
           loadVideoPlaybackState(fileName)
+          applyResumeState()
         }
         setOrientation()
         viewModel.changeVideoAspect(playerPreferences.videoAspect.get())
       }
 
       MPVLib.mpvEventId.MPV_EVENT_PLAYBACK_RESTART -> player.isExiting = false
+    }
+  }
+
+  /**
+   * Resume is keyed by MediaStore id + path hash, which the library passes in when
+   * it starts playback; anything else falls back to the played URI, so resume still
+   * works for files opened from the picker.
+   */
+  private fun setupResumeKey(intent: Intent) {
+    val mediaId = intent.getLongExtra(EXTRA_MEDIA_ID, 0L)
+    val path = intent.getStringExtra(EXTRA_MEDIA_PATH).orEmpty()
+    val fallback = (intent.data ?: intent.getParcelableExtra(Intent.EXTRA_STREAM))?.toString().orEmpty()
+    resumeFileKey = LibraryLogic.fileKey(mediaId, path.ifBlank { fallback })
+  }
+
+  private fun saveResumeState() {
+    if (resumeFileKey.isBlank()) return
+    val durationMs = ((viewModel.duration ?: 0).toLong()) * 1000L
+    val positionMs = ((viewModel.pos ?: 0).toLong()) * 1000L
+    if (durationMs <= 0) return
+    lifecycleScope.launch(Dispatchers.IO) {
+      resumeRepository.save(
+        ResumeStateEntity(
+          fileKey = resumeFileKey,
+          positionMs = positionMs.coerceAtLeast(0),
+          durationMs = durationMs,
+          lastPlayedAt = System.currentTimeMillis(),
+          completed = LibraryLogic.isCompleted(positionMs, durationMs),
+        ),
+      )
+    }
+  }
+
+  /** Saves the position every few seconds so a crash or a kill loses at most that much. */
+  private fun startResumeTicker() {
+    lifecycleScope.launch {
+      while (isActive) {
+        delay(RESUME_TICK_MS)
+        if (MPVLib.getPropertyBoolean("pause") != true) saveResumeState()
+      }
+    }
+  }
+
+  /** Seeks to the stored position once the file is loaded, unless it is finished. */
+  private suspend fun applyResumeState() {
+    if (resumeFileKey.isBlank()) return
+    val state = resumeRepository.get(resumeFileKey) ?: return
+    if (!LibraryLogic.shouldOfferResume(state.positionMs, state.durationMs, state.completed)) return
+    withContext(Dispatchers.Main) {
+      MPVLib.setPropertyInt("time-pos", (state.positionMs / 1000L).toInt())
     }
   }
 
@@ -854,6 +917,12 @@ class PlayerActivity : AppCompatActivity() {
   companion object {
     // action of result intent
     private const val RESULT_INTENT = "live.mehiz.mpvkt.ui.player.PlayerActivity.result"
+
+    /** MediaStore id of the file being played, so resume can key on it. */
+    const val EXTRA_MEDIA_ID = "live.mehiz.mpvkt.ui.player.media_id"
+    const val EXTRA_MEDIA_PATH = "live.mehiz.mpvkt.ui.player.media_path"
+
+    private const val RESUME_TICK_MS = 5_000L
   }
 }
 

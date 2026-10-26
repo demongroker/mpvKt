@@ -1,0 +1,429 @@
+package live.mehiz.mpvkt.library
+
+import android.Manifest
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Sort
+import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import androidx.core.net.toUri
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import live.mehiz.mpvkt.preferences.preference.collectAsState
+import live.mehiz.mpvkt.ui.player.PlayerActivity
+import org.koin.compose.koinInject
+
+private const val VIDEO_ASPECT = 16f / 9f
+private const val FOLDERS_PER_PAGE = 12
+
+/**
+ * The library is the home screen: folders first, an expandable grid inside each
+ * one, and the "open something else" entries behind the + button.
+ */
+@Suppress("LongMethod")
+@Composable
+fun LibraryHome(
+  onPlayVideo: (LibraryVideo) -> Unit,
+  onOpenUrl: () -> Unit,
+  onOpenFile: () -> Unit,
+  onBrowseFolder: () -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  val context = LocalContext.current
+  val repository = koinInject<MediaStoreLibraryRepository>()
+  val exclusionSource = koinInject<LibraryExclusionSource>()
+  val preferences = koinInject<LibraryPreferences>()
+  val thumbnails = koinInject<ThumbnailCache>()
+
+  val permission = if (Build.VERSION.SDK_INT >= 33) {
+    Manifest.permission.READ_MEDIA_VIDEO
+  } else {
+    Manifest.permission.READ_EXTERNAL_STORAGE
+  }
+  var granted by remember {
+    mutableStateOf(ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED)
+  }
+  val permissionLauncher = rememberLauncherForActivityResult(
+    ActivityResultContracts.RequestPermission(),
+  ) { ok -> granted = ok }
+  LaunchedEffect(granted) {
+    if (!granted) permissionLauncher.launch(permission)
+  }
+
+  var videos by remember { mutableStateOf<List<LibraryVideo>>(emptyList()) }
+  var fromSource by remember { mutableStateOf(LibraryExclusions()) }
+  var loading by remember { mutableStateOf(true) }
+  var query by remember { mutableStateOf("") }
+  var menuOpen by remember { mutableStateOf(false) }
+  var expanded by remember { mutableStateOf(setOf<String>()) }
+  var loadedFolders by remember { mutableIntStateOf(FOLDERS_PER_PAGE) }
+
+  val sortName by preferences.sortOrder.collectAsState()
+  val pinnedFolders by preferences.pinnedFolders.collectAsState()
+  val hiddenFolders by preferences.hiddenFolders.collectAsState()
+  val sort = LibrarySort.fromName(sortName)
+
+  LaunchedEffect(granted) {
+    if (!granted) return@LaunchedEffect
+    loading = true
+    fromSource = exclusionSource.exclusions()
+    videos = repository.loadVideos()
+    loading = false
+  }
+
+  val exclusions = fromSource + LibraryExclusions(folders = hiddenFolders)
+  val folders = remember(videos, exclusions, pinnedFolders, query, sort) {
+    LibraryLogic.groupByFolder(
+      videos = videos,
+      exclusions = exclusions,
+      pinnedFolders = pinnedFolders,
+      query = query,
+      sort = sort,
+    )
+  }
+  val shownFolders = folders.take(loadedFolders)
+
+  if (!granted) {
+    PermissionPrompt(onRequest = { permissionLauncher.launch(permission) }, modifier = modifier)
+    return
+  }
+
+  Box(modifier = modifier.fillMaxSize()) {
+    LazyVerticalGrid(
+      columns = GridCells.Adaptive(minSize = 160.dp),
+      contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 96.dp),
+      horizontalArrangement = Arrangement.spacedBy(8.dp),
+      verticalArrangement = Arrangement.spacedBy(8.dp),
+      modifier = Modifier.fillMaxSize(),
+    ) {
+      item(span = { GridItemSpan(maxLineSpan) }) {
+        LibrarySearchRow(
+          query = query,
+          onQueryChange = { query = it },
+          sort = sort,
+          onSortChange = { preferences.sortOrder.set(it.name) },
+        )
+      }
+      if (loading) {
+        item(span = { GridItemSpan(maxLineSpan) }) { Text("Scanning…", Modifier.padding(16.dp)) }
+      } else if (folders.isEmpty()) {
+        item(span = { GridItemSpan(maxLineSpan) }) {
+          Text("No videos found on this device", Modifier.padding(16.dp))
+        }
+      }
+      shownFolders.forEach { folder ->
+        item(span = { GridItemSpan(maxLineSpan) }, key = "folder-${folder.name}") {
+          FolderHeader(
+            folder = folder,
+            expanded = folder.name in expanded,
+            context = context,
+            thumbnails = thumbnails,
+            onToggle = {
+              expanded = if (folder.name in expanded) expanded - folder.name else expanded + folder.name
+            },
+            onPin = {
+              preferences.pinnedFolders.set(
+                if (folder.name in pinnedFolders) pinnedFolders - folder.name else pinnedFolders + folder.name,
+              )
+            },
+            onHide = { preferences.hiddenFolders.set(hiddenFolders + folder.name) },
+          )
+        }
+        if (folder.name in expanded) {
+          items(folder.videos, key = { it.fileKey }) { video ->
+            VideoCard(video = video, context = context, thumbnails = thumbnails) { onPlayVideo(video) }
+          }
+        }
+      }
+      if (folders.size > shownFolders.size) {
+        item(span = { GridItemSpan(maxLineSpan) }) {
+          TextButton(onClick = { loadedFolders += FOLDERS_PER_PAGE }) {
+            Text("Load more folders (${folders.size - shownFolders.size} left)")
+          }
+        }
+      }
+    }
+
+    Box(modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp)) {
+      FloatingActionButton(onClick = { menuOpen = true }) { Icon(Icons.Default.Add, null) }
+      DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+        DropdownMenuItem(
+          text = { Text("Open a link") },
+          onClick = {
+            menuOpen = false
+            onOpenUrl()
+          },
+        )
+        DropdownMenuItem(
+          text = { Text("Pick a file") },
+          onClick = {
+            menuOpen = false
+            onOpenFile()
+          },
+        )
+        DropdownMenuItem(
+          text = { Text("Browse folders") },
+          onClick = {
+            menuOpen = false
+            onBrowseFolder()
+          },
+        )
+        if (hiddenFolders.isNotEmpty()) {
+          DropdownMenuItem(
+            text = { Text("Unhide all folders (${hiddenFolders.size})") },
+            onClick = {
+              menuOpen = false
+              preferences.hiddenFolders.set(emptySet())
+            },
+          )
+        }
+      }
+    }
+  }
+}
+
+@Composable
+private fun PermissionPrompt(onRequest: () -> Unit, modifier: Modifier = Modifier) {
+  Column(
+    modifier = modifier.fillMaxSize().padding(24.dp),
+    verticalArrangement = Arrangement.Center,
+    horizontalAlignment = Alignment.CenterHorizontally,
+  ) {
+    Icon(Icons.Default.VideoLibrary, null)
+    Text("Vela needs access to your videos to build the library.")
+    Button(onClick = onRequest) { Text("Allow access") }
+  }
+}
+
+@Composable
+private fun LibrarySearchRow(
+  query: String,
+  onQueryChange: (String) -> Unit,
+  sort: LibrarySort,
+  onSortChange: (LibrarySort) -> Unit,
+) {
+  var sortMenu by remember { mutableStateOf(false) }
+  Row(
+    modifier = Modifier.fillMaxWidth(),
+    verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.spacedBy(4.dp),
+  ) {
+    OutlinedTextField(
+      value = query,
+      onValueChange = onQueryChange,
+      singleLine = true,
+      leadingIcon = { Icon(Icons.Default.Search, null) },
+      label = { Text("Search folders and videos") },
+      modifier = Modifier.weight(1f),
+    )
+    Box {
+      IconButton(onClick = { sortMenu = true }) { Icon(Icons.Default.Sort, null) }
+      DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
+        LibrarySort.entries.forEach { option ->
+          DropdownMenuItem(
+            text = { Text(if (option == sort) "✓ ${option.name}" else option.name) },
+            onClick = {
+              sortMenu = false
+              onSortChange(option)
+            },
+          )
+        }
+      }
+    }
+  }
+}
+
+@Composable
+private fun FolderHeader(
+  folder: LibraryFolder,
+  expanded: Boolean,
+  context: Context,
+  thumbnails: ThumbnailCache,
+  onToggle: () -> Unit,
+  onPin: () -> Unit,
+  onHide: () -> Unit,
+) {
+  var menu by remember { mutableStateOf(false) }
+  val thumb by rememberThumb(folder.cover, context, thumbnails)
+  Row(
+    modifier = Modifier
+      .fillMaxWidth()
+      .clip(RoundedCornerShape(12.dp))
+      .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+      .combinedClickable(onClick = onToggle, onLongClick = { menu = true })
+      .padding(8.dp),
+    verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.spacedBy(12.dp),
+  ) {
+    Box(
+      modifier = Modifier.size(56.dp).clip(RoundedCornerShape(8.dp)),
+      contentAlignment = Alignment.Center,
+    ) {
+      val bitmap = thumb
+      if (bitmap != null) {
+        Image(bitmap = bitmap, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+      } else {
+        Icon(Icons.Default.Folder, null)
+      }
+    }
+    Column(modifier = Modifier.weight(1f)) {
+      Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        if (folder.pinned) Icon(Icons.Default.PushPin, null, modifier = Modifier.size(14.dp))
+        Text(folder.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+      }
+      Text("${folder.count} videos", style = MaterialTheme.typography.bodySmall)
+    }
+    Icon(if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown, null)
+    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+      DropdownMenuItem(
+        text = { Text(if (folder.pinned) "Unpin folder" else "Pin to top") },
+        onClick = {
+          menu = false
+          onPin()
+        },
+      )
+      DropdownMenuItem(
+        text = { Text("Hide folder") },
+        leadingIcon = { Icon(Icons.Default.VisibilityOff, null) },
+        onClick = {
+          menu = false
+          onHide()
+        },
+      )
+    }
+  }
+}
+
+@Composable
+private fun VideoCard(
+  video: LibraryVideo,
+  context: Context,
+  thumbnails: ThumbnailCache,
+  onPlay: () -> Unit,
+) {
+  val thumb by rememberThumb(video, context, thumbnails)
+  Column(
+    modifier = Modifier
+      .clip(RoundedCornerShape(12.dp))
+      .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+      .clickable(onClick = onPlay),
+  ) {
+    Box(
+      modifier = Modifier.fillMaxWidth().aspectRatio(VIDEO_ASPECT),
+      contentAlignment = Alignment.Center,
+    ) {
+      val bitmap = thumb
+      if (bitmap != null) {
+        Image(bitmap = bitmap, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+      } else {
+        Icon(Icons.Default.VideoLibrary, null)
+      }
+      Text(
+        text = formatDuration(video.durationMs),
+        style = MaterialTheme.typography.labelSmall,
+        modifier = Modifier
+          .align(Alignment.BottomEnd)
+          .padding(6.dp)
+          .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.6f), RoundedCornerShape(4.dp))
+          .padding(horizontal = 4.dp, vertical = 1.dp),
+      )
+    }
+    val progress = LibraryLogic.progressFraction(video.positionMs, video.durationMs)
+    if (progress > 0f) {
+      LinearProgressIndicator(
+        progress = { progress },
+        modifier = Modifier.fillMaxWidth().height(3.dp),
+      )
+    }
+    Text(
+      text = video.name,
+      style = MaterialTheme.typography.bodySmall,
+      maxLines = 2,
+      overflow = TextOverflow.Ellipsis,
+      modifier = Modifier.padding(8.dp),
+    )
+  }
+}
+
+@Composable
+private fun rememberThumb(video: LibraryVideo?, context: Context, thumbnails: ThumbnailCache) =
+  produceState<ImageBitmap?>(initialValue = null, video?.fileKey) {
+    value = if (video == null) null else withContext(Dispatchers.IO) { thumbnails.load(context, video) }
+  }
+
+private fun formatDuration(ms: Long): String {
+  if (ms <= 0) return "--:--"
+  val totalSeconds = ms / 1000
+  val h = totalSeconds / 3600
+  val m = (totalSeconds % 3600) / 60
+  val s = totalSeconds % 60
+  return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
+}
+
+/** Starts playback with the identity the resume table expects. */
+fun playLibraryVideo(context: Context, video: LibraryVideo) {
+  val intent = Intent(Intent.ACTION_VIEW, video.uri.toUri())
+  intent.setClass(context, PlayerActivity::class.java)
+  intent.putExtra(PlayerActivity.EXTRA_MEDIA_ID, video.mediaId)
+  intent.putExtra(PlayerActivity.EXTRA_MEDIA_PATH, video.path.ifBlank { video.uri })
+  context.startActivity(intent)
+}

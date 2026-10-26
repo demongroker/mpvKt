@@ -8,6 +8,7 @@ val Migrations: Array<Migration> = arrayOf(
   MIGRATION2to3,
   MIGRATION3to4,
   MIGRATION4to5,
+  MIGRATION5to6,
 )
 
 private object MIGRATION1to2 : Migration(1, 2) {
@@ -38,6 +39,26 @@ private object MIGRATION3to4 : Migration(3, 4) {
       )
       """.trimIndent()
     )
+  }
+}
+
+/**
+ * Resume positions live in their own table: the older PlaybackStateEntity is keyed
+ * by title (mpv settings) while resume needs MediaStore id + path, milliseconds and
+ * a completed flag so the library can draw a progress bar.
+ */
+internal object MIGRATION5to6 : Migration(5, 6) {
+  const val SQL = """CREATE TABLE IF NOT EXISTS `resume_state` (
+    `fileKey` TEXT NOT NULL,
+    `positionMs` INTEGER NOT NULL,
+    `durationMs` INTEGER NOT NULL,
+    `lastPlayedAt` INTEGER NOT NULL,
+    `completed` INTEGER NOT NULL,
+    PRIMARY KEY(`fileKey`)
+  )"""
+
+  override fun migrate(db: SupportSQLiteDatabase) {
+    db.execSQL(SQL)
   }
 }
 

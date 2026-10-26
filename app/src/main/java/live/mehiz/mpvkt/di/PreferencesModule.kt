@@ -4,6 +4,7 @@ import live.mehiz.mpvkt.preferences.AdvancedPreferences
 import live.mehiz.mpvkt.preferences.AppearancePreferences
 import live.mehiz.mpvkt.preferences.AudioPreferences
 import live.mehiz.mpvkt.preferences.DecoderPreferences
+import live.mehiz.mpvkt.library.LibraryPreferences
 import live.mehiz.mpvkt.preferences.GesturePreferences
 import live.mehiz.mpvkt.preferences.PlayerPreferences
 import live.mehiz.mpvkt.preferences.SubtitlesPreferences
@@ -24,4 +25,5 @@ val PreferencesModule = module {
   singleOf(::SubtitlesPreferences)
   singleOf(::AudioPreferences)
   singleOf(::AdvancedPreferences)
+  singleOf(::LibraryPreferences)
 }
