@@ -1,0 +1,190 @@
+name: Android emulator tests
+
+# Reusable: call it from another workflow (workflow_call) or run it by hand
+# (workflow_dispatch) to boot an emulator, install an APK, screenshot the home
+# screen and run a test command. Everything it produces lands in report/.
+on:
+  workflow_call:
+    inputs:
+      apk_path:
+        description: Path to the APK on the runner (relative to the workspace)
+        required: true
+        type: string
+      test_command:
+        description: Command to run on the emulator (empty = install + screenshot only)
+        required: false
+        default: ""
+        type: string
+      api_level:
+        description: Emulator API level
+        required: false
+        default: "34"
+        type: string
+      arch:
+        description: Emulator architecture
+        required: false
+        default: x86_64
+        type: string
+      timeout_minutes:
+        description: Job timeout
+        required: false
+        default: 45
+        type: number
+      # A called workflow starts on a fresh runner with an empty workspace, so the
+      # APK usually has to come from somewhere: an artifact of the calling run, or
+      # a published release. Both are optional; apk_path wins when the file exists.
+      apk_artifact:
+        description: Artifact name to download into the workspace when apk_path is missing
+        required: false
+        default: ""
+        type: string
+      release_tag:
+        description: Release tag to download the APK from when apk_path is missing
+        required: false
+        default: ""
+        type: string
+  workflow_dispatch:
+    inputs:
+      apk_path:
+        description: Path to the APK on the runner (relative to the workspace)
+        required: false
+        default: app-release.apk
+      test_command:
+        description: Command to run on the emulator (empty = install + screenshot only)
+        required: false
+        default: ""
+      api_level:
+        description: Emulator API level
+        required: false
+        default: "34"
+      arch:
+        description: Emulator architecture
+        required: false
+        default: x86_64
+      timeout_minutes:
+        description: Job timeout
+        required: false
+        default: "45"
+      apk_artifact:
+        description: Artifact name to download when apk_path is missing
+        required: false
+        default: ""
+      release_tag:
+        description: Release tag to download the APK from when apk_path is missing
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  emulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ fromJSON(inputs.timeout_minutes) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Android SDK
+        run: |
+          SDK="${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+
+      - name: Probe KVM
+        run: |
+          mkdir -p report
+          {
+            echo "date: $(date -u +%FT%TZ)"
+            echo "cpu_virt_flags: $(grep -c -E '(vmx|svm)' /proc/cpuinfo || true)"
+            echo "kvm_device: $(ls -l /dev/kvm 2>&1)"
+            echo "kvm_usable: $([ -r /dev/kvm ] && [ -w /dev/kvm ] && echo yes || echo no)"
+            echo "nested_virt: $(cat /sys/module/kvm_intel/parameters/nested 2>/dev/null || echo n/a)"
+            echo "runner: ${RUNNER_NAME:-unknown}"
+          } | tee report/kvm.txt
+          cat report/kvm.txt >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Resolve the APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APK_PATH: ${{ inputs.apk_path }}
+          APK_ARTIFACT: ${{ inputs.apk_artifact }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p report
+          if [ -n "${APK_PATH}" ] && [ -f "${APK_PATH}" ]; then
+            echo "using workspace APK: ${APK_PATH}"
+            echo "${APK_PATH}" > report/apk_path.txt
+          elif [ -n "${APK_ARTIFACT}" ]; then
+            echo "downloading artifact ${APK_ARTIFACT}"
+            gh run download "${{ github.run_id }}" -R "${{ github.repository }}" -n "${APK_ARTIFACT}" -D downloaded || \
+              gh run download -R "${{ github.repository }}" -n "${APK_ARTIFACT}" -D downloaded
+            find downloaded -name '*.apk' | tee report/apk_path.txt
+          elif [ -n "${RELEASE_TAG}" ]; then
+            echo "downloading release ${RELEASE_TAG}"
+            gh release download "${RELEASE_TAG}" -R "${{ github.repository }}" --pattern '*.apk' -D downloaded
+            find downloaded -name '*.apk' | head -1 | tee report/apk_path.txt
+          else
+            echo "No APK found: set apk_path, apk_artifact or release_tag" | tee report/apk_path.txt
+            exit 1
+          fi
+          echo "resolved: $(cat report/apk_path.txt)"
+
+      - name: Emulator, install, screenshot, tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ inputs.api_level }}
+          arch: ${{ inputs.arch }}
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: |
+            set -x
+            APK="$(tail -1 report/apk_path.txt)"
+            adb wait-for-device
+            echo "boot_completed=$(adb shell getprop sys.boot_completed | tr -d '\r')"
+            adb shell settings put global window_animation_scale 0 || true
+            adb install -r -g "$APK" 2>&1 | tee -a report/install.txt
+            adb shell am start -n app.vela.player/live.mehiz.mpvkt.MainActivity 2>&1 | tee -a report/launch.txt
+            sleep 12
+            adb exec-out screencap -p > report/home.png
+            adb shell dumpsys window 2>/dev/null | grep -E 'mCurrentFocus|mFocusedApp' | head -5 >> report/launch.txt || true
+            adb logcat -d -t 400 > report/logcat.txt || true
+            TEST_COMMAND="${{ inputs.test_command }}"
+            if [ -n "$TEST_COMMAND" ]; then
+              echo "running: $TEST_COMMAND"
+              set +e
+              eval "$TEST_COMMAND" 2>&1 | tee -a report/test.txt
+              echo "test_exit=$?" | tee -a report/test.txt
+              set -e
+            else
+              echo "no test_command given — install + screenshot only" | tee report/test.txt
+            fi
+            mkdir -p report/androidtest
+            cp -r app/build/reports/androidTests report/androidtest/ 2>/dev/null || true
+            cp -r app/build/outputs/androidTest-results report/androidtest/ 2>/dev/null || true
+            adb logcat -d > report/logcat-full.txt || true
+            ls -la report
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: emulator-report-api${{ inputs.api_level }}-${{ inputs.arch }}
+          path: report/
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Job timing
+        if: always()
+        run: |
+          echo "started: ${{ job.startedAt || '' }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "KVM: $(grep kvm_usable report/kvm.txt || true)" >> "$GITHUB_STEP_SUMMARY"
