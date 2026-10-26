@@ -14,8 +14,8 @@ class PlayerPreferences(
   /** Auto-rotate toggle state: [RotationMode.Auto] follows the sensors. */
   val rotationMode = preferenceStore.getEnum("player_rotation_mode", RotationMode.Auto)
 
-  /** Orientation to hold while [rotationMode] is Locked. */
-  val lockedOrientation = preferenceStore.getInt("player_locked_orientation", 0)
+  /** Orientation to hold while [rotationMode] is Locked; -1 means "not locked yet". */
+  val lockedOrientation = preferenceStore.getInt("player_locked_orientation", -1)
 
   /** Play the next file in the folder when one ends. */
   val autoPlayNext = preferenceStore.getBoolean("player_auto_play_next", true)

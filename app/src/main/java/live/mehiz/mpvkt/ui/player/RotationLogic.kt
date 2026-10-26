@@ -14,6 +14,12 @@ object RotationLogic {
   /** Sensor-driven, follows the physical screen position. */
   const val AUTO: Int = ActivityInfo.SCREEN_ORIENTATION_SENSOR
 
+  /**
+   * "No locked orientation yet". Note SCREEN_ORIENTATION_LANDSCAPE is 0, so 0 can
+   * never be the "unset" sentinel.
+   */
+  const val UNSPECIFIED: Int = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+
   fun lockTo(currentOrientation: Int): Int =
     if (currentOrientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
       ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
@@ -30,7 +36,7 @@ object RotationLogic {
     lockedOrientation: Int,
     preference: PlayerOrientation,
   ): Int {
-    if (mode == RotationMode.Locked && lockedOrientation != 0) return lockedOrientation
+    if (mode == RotationMode.Locked && lockedOrientation != UNSPECIFIED) return lockedOrientation
     return when (preference) {
       PlayerOrientation.Free -> ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
       PlayerOrientation.SensorLandscape -> AUTO
