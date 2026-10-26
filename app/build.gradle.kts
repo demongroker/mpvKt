@@ -21,8 +21,8 @@ android {
     applicationId = "app.vela.player"
     minSdk = 21
     targetSdk = 36
-    versionCode = 260
-    versionName = "0.1.13"
+    versionCode = 270
+    versionName = "0.1.14"
 
     vectorDrawables {
       useSupportLibrary = true

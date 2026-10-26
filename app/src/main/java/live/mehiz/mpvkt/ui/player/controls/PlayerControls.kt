@@ -1,6 +1,7 @@
 package live.mehiz.mpvkt.ui.player.controls
 
 import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.LocalActivity
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -50,6 +51,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -215,13 +217,17 @@ fun PlayerControls(
         val swapVolumeAndBrightness by playerPreferences.swapVolumeAndBrightness.collectAsState()
         val reduceMotion by playerPreferences.reduceMotion.collectAsState()
 
-        LaunchedEffect(volume, mpvVolume, isVolumeSliderShown) {
-          delay(2000)
-          if (isVolumeSliderShown) viewModel.isVolumeSliderShown.update { false }
+        // Hide the overlay 1.5 s after the last gesture: the effect restarts on every
+        // value change, so the timeout is measured from the gesture, not the opening.
+        LaunchedEffect(isVolumeSliderShown, volume, mpvVolume) {
+          if (!isVolumeSliderShown) return@LaunchedEffect
+          delay(OverlayLogic.HIDE_AFTER_MS)
+          viewModel.isVolumeSliderShown.update { false }
         }
-        LaunchedEffect(brightness, isBrightnessSliderShown) {
-          delay(2000)
-          if (isBrightnessSliderShown) viewModel.isBrightnessSliderShown.update { false }
+        LaunchedEffect(isBrightnessSliderShown, brightness) {
+          if (!isBrightnessSliderShown) return@LaunchedEffect
+          delay(OverlayLogic.HIDE_AFTER_MS)
+          viewModel.isBrightnessSliderShown.update { false }
         }
         AnimatedVisibility(
           isBrightnessSliderShown,
@@ -312,8 +318,26 @@ fun PlayerControls(
           delay(2000)
           viewModel.playerUpdate.update { PlayerUpdates.None }
         }
+        // Auto mode cannot follow the screen while the system's own auto-rotate is
+        // off, so say so once instead of leaving the button looking broken.
+        val rotationMode by playerPreferences.rotationMode.collectAsState()
+        val context = LocalContext.current
+        var showRotationHint by remember { mutableStateOf(false) }
+        LaunchedEffect(rotationMode, controlsShown) {
+          if (!controlsShown) return@LaunchedEffect
+          val systemAutoRotate = Settings.System.getInt(
+            context.contentResolver,
+            Settings.System.ACCELEROMETER_ROTATION,
+            0,
+          ) == 1
+          showRotationHint = rotationMode == RotationMode.Auto && !systemAutoRotate
+          if (showRotationHint) {
+            delay(4000)
+            showRotationHint = false
+          }
+        }
         AnimatedVisibility(
-          currentPlayerUpdate !is PlayerUpdates.None,
+          currentPlayerUpdate !is PlayerUpdates.None || (showRotationHint && controlsShown),
           enter = fadeIn(playerControlsEnterAnimationSpec()),
           exit = fadeOut(playerControlsExitAnimationSpec()),
           modifier = Modifier.constrainAs(playerUpdates) {
@@ -325,7 +349,9 @@ fun PlayerControls(
             is PlayerUpdates.MultipleSpeed -> MultipleSpeedPlayerUpdate(currentSpeed = holdForMultipleSpeed)
             is PlayerUpdates.AspectRatio -> TextPlayerUpdate(stringResource(aspectRatio.titleRes))
             is PlayerUpdates.ShowText -> TextPlayerUpdate((currentPlayerUpdate as PlayerUpdates.ShowText).value)
-            else -> {}
+            else -> if (showRotationHint) {
+              TextPlayerUpdate("Turn on auto-rotate in Quick Settings to follow the screen")
+            }
           }
         }
 

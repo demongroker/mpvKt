@@ -103,6 +103,9 @@ fun GestureHandler(
         var originalSpeed = MPVLib.getPropertyFloat("speed") ?: 1f
         detectTapGestures(
           onTap = {
+            // A tap anywhere on the video dismisses a stuck brightness/volume overlay.
+            viewModel.isVolumeSliderShown.update { OverlayLogic.afterTap() }
+            viewModel.isBrightnessSliderShown.update { OverlayLogic.afterTap() }
             if (controlsShown) viewModel.hideControls() else viewModel.showControls()
           },
           onDoubleTap = {

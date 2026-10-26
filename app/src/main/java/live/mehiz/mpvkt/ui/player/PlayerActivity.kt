@@ -65,6 +65,8 @@ import live.mehiz.mpvkt.databinding.PlayerLayoutBinding
 import live.mehiz.mpvkt.domain.playbackstate.repository.PlaybackStateRepository
 import live.mehiz.mpvkt.domain.resume.repository.ResumeRepository
 import live.mehiz.mpvkt.library.LibraryDeletion
+import live.mehiz.mpvkt.library.MediaStoreLibraryRepository
+import live.mehiz.mpvkt.library.QueueAdvance
 import live.mehiz.mpvkt.preferences.preference.collectAsState
 import live.mehiz.mpvkt.library.LibraryLogic
 import live.mehiz.mpvkt.library.LibraryPreferences
@@ -91,6 +93,7 @@ class PlayerActivity : AppCompatActivity() {
   private val playbackStateRepository: PlaybackStateRepository by inject()
   private val resumeRepository: ResumeRepository by inject()
   private val libraryPreferences: LibraryPreferences by inject()
+  private val libraryRepository: MediaStoreLibraryRepository by inject()
   private var resumeFileKey: String = ""
 
   /** The folder queue, handed over by the library so next/shuffle/delete work here. */
@@ -160,7 +163,7 @@ class PlayerActivity : AppCompatActivity() {
         PlayerControls(
           viewModel = viewModel,
           onBackPress = ::finish,
-          onPlayNext = ::playNextInQueue,
+          onPlayNext = { playNextInQueue(currentFailedKeys()) },
           hasNext = nextQueueItem() != null,
           isShuffled = queue?.shuffled == true,
           onToggleShuffle = ::toggleShuffle,
@@ -612,9 +615,33 @@ class PlayerActivity : AppCompatActivity() {
       }
 
       MPVLib.mpvEventId.MPV_EVENT_END_FILE -> {
-        // Auto-play next only when the file really played to its end.
         val eof = MPVLib.getPropertyBoolean("eof-reached") == true
-        if (eof && playerPreferences.autoPlayNext.get()) playNextInQueue()
+        val idle = MPVLib.getPropertyBoolean("idle-active") == true
+        val position = queue?.items?.indexOfFirst { it.fileKey == resumeFileKey } ?: -1
+        val reason = when {
+          eof -> "EOF"
+          idle -> "STOP"
+          else -> "ERROR/QUIT"
+        }
+        Log.d(
+          QUEUE_TAG,
+          "END_FILE reason=$reason eof=$eof idle=$idle queuePosition=$position " +
+            "of ${queue?.items?.size ?: 0} key=$resumeFileKey name=$fileName",
+        )
+        if (!playerPreferences.autoPlayNext.get()) return
+        val failed = currentFailedKeys()
+        if (eof) {
+          playNextInQueue(failed)
+        } else {
+          // The file we were sent to never opened: remember it and try the next one.
+          val nextFailed = failed + resumeFileKey
+          Log.d(QUEUE_TAG, "skipping unopenable $resumeFileKey (${nextFailed.size}/${QueueAdvance.MAX_SKIPS})")
+          if (nextFailed.size <= QueueAdvance.MAX_SKIPS) {
+            playNextInQueue(nextFailed)
+          } else {
+            Log.d(QUEUE_TAG, "too many failed files; stopping at the end of the queue")
+          }
+        }
       }
 
       MPVLib.mpvEventId.MPV_EVENT_PLAYBACK_RESTART -> player.isExiting = false
@@ -626,23 +653,108 @@ class PlayerActivity : AppCompatActivity() {
       ?: queue?.copy()
   }
 
-  private fun nextQueueItem(): QueueItem? {
-    val current = queue ?: return null
-    return QueueLogic.next(current, resumeFileKey, playerPreferences.loopFolder.get())
+  private fun nextQueueItem(): QueueItem? = QueueAdvance.nextAfterEnd(
+    queue = queue,
+    currentKey = resumeFileKey,
+    currentUri = currentUriString(),
+    currentPath = currentPathString(),
+    currentName = currentNameString(),
+    failedKeys = currentFailedKeys(),
+    loop = playerPreferences.loopFolder.get(),
+  )
+
+  private fun currentFailedKeys(): Set<String> =
+    intent.getStringExtra(EXTRA_FAILED_KEYS)
+      ?.split(',')
+      ?.map { it.trim() }
+      ?.filter { it.isNotEmpty() }
+      ?.toSet()
+      .orEmpty()
+
+  private fun currentUriString(): String = intent.data?.toString().orEmpty()
+
+  private fun currentPathString(): String = MPVLib.getPropertyString("path").orEmpty()
+
+  private fun currentNameString(): String =
+    fileName.ifBlank { MPVLib.getPropertyString("filename").orEmpty() }
+
+  /**
+   * Plays the next file of the queue. Matching is deliberately loose: the player's
+   * idea of the current file (a descriptor path, a title) does not have to equal
+   * the library's, and if the file is not in the queue at all we start the folder
+   * from the top instead of freezing on the last frame.
+   */
+  private fun playNextInQueue(failedKeys: Set<String>) {
+    val item = QueueAdvance.nextAfterEnd(
+      queue = queue,
+      currentKey = resumeFileKey,
+      currentUri = currentUriString(),
+      currentPath = currentPathString(),
+      currentName = currentNameString(),
+      failedKeys = failedKeys,
+      loop = playerPreferences.loopFolder.get(),
+    )
+    if (item != null) {
+      startQueueItem(item, failedKeys)
+      return
+    }
+    if (queue == null) {
+      rebuildQueueThenPlay(failedKeys)
+    } else {
+      Log.d(QUEUE_TAG, "end of queue (loop=${playerPreferences.loopFolder.get()}, failed=${failedKeys.size})")
+    }
   }
 
-  /** Starts the next file of the folder, carrying the queue along. */
-  private fun playNextInQueue() {
-    val item = nextQueueItem() ?: return
+  private fun startQueueItem(item: QueueItem, failedKeys: Set<String>) {
+    Log.d(QUEUE_TAG, "advancing to ${item.name} (failed=${failedKeys.size})")
     val nextIntent = Intent(this, PlayerActivity::class.java).apply {
       data = item.uri.toUri()
       putExtra(EXTRA_MEDIA_ID, item.mediaId)
       putExtra(EXTRA_MEDIA_PATH, item.path.ifBlank { item.uri })
       putExtra(EXTRA_QUEUE, queue?.toJson())
+      if (failedKeys.isNotEmpty()) putExtra(EXTRA_FAILED_KEYS, failedKeys.joinToString(","))
     }
     player.isExiting = true
     startActivity(nextIntent)
     finish()
+  }
+
+  /** No queue was handed over (URL or picker): rebuild it from the file's own folder. */
+  private fun rebuildQueueThenPlay(failedKeys: Set<String>) {
+    lifecycleScope.launch(Dispatchers.IO) {
+      val videos = runCatching { libraryRepository.loadVideos() }.getOrDefault(emptyList())
+      val folder = QueueAdvance.folderOf(
+        videos = videos,
+        currentKey = resumeFileKey,
+        currentUri = currentUriString(),
+        currentPath = currentPathString(),
+        currentName = currentNameString(),
+      )
+      if (folder == null) {
+        Log.d(QUEUE_TAG, "no queue and no folder for this file — stopping cleanly")
+        return@launch
+      }
+      val rebuilt = QueueAdvance.queueFromFolder(
+        videos = videos.filter { it.folder == folder },
+        folder = folder,
+        shuffled = libraryPreferences.shuffledFolders.get().contains(folder),
+        seed = libraryPreferences.shuffleSeed(folder).get(),
+      ) ?: return@launch
+      queue = rebuilt
+      Log.d(QUEUE_TAG, "rebuilt queue for folder=$folder items=${rebuilt.items.size}")
+      val item = QueueAdvance.nextAfterEnd(
+        queue = rebuilt,
+        currentKey = resumeFileKey,
+        currentUri = currentUriString(),
+        currentPath = currentPathString(),
+        currentName = currentNameString(),
+        failedKeys = failedKeys,
+        loop = playerPreferences.loopFolder.get(),
+      )
+      withContext(Dispatchers.Main) {
+        if (item != null) startQueueItem(item, failedKeys) else Log.d(QUEUE_TAG, "rebuilt queue had nothing after this file")
+      }
+    }
   }
 
   /** Shuffle applies to this folder's queue only; the library keeps its own sort. */
@@ -667,15 +779,13 @@ class PlayerActivity : AppCompatActivity() {
   private fun toggleRotation() {
     val mode = playerPreferences.rotationMode.get()
     if (mode == RotationMode.Auto) {
-      val locked = if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
-        ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-      } else {
-        ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-      }
+      val locked = RotationLogic.lockTo(resources.configuration.orientation)
       playerPreferences.lockedOrientation.set(locked)
       playerPreferences.rotationMode.set(RotationMode.Locked)
+      Log.d(ROTATION_TAG, "rotate pressed: auto -> locked($locked)")
     } else {
       playerPreferences.rotationMode.set(RotationMode.Auto)
+      Log.d(ROTATION_TAG, "rotate pressed: locked -> auto")
     }
     setOrientation()
   }
@@ -908,27 +1018,19 @@ class PlayerActivity : AppCompatActivity() {
   }
 
   private fun setOrientation() {
-    // A locked rotation wins over the Orientation preference until it is toggled back.
     val mode = playerPreferences.rotationMode.get()
-    val locked = playerPreferences.lockedOrientation.get()
-    if (mode == RotationMode.Locked && locked != 0) {
-      requestedOrientation = locked
-      return
-    }
-    requestedOrientation = when (playerPreferences.orientation.get()) {
-      PlayerOrientation.Free -> ActivityInfo.SCREEN_ORIENTATION_SENSOR
-      PlayerOrientation.Video -> if ((player.getVideoOutAspect() ?: 0.0) > 1.0) {
-        ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-      } else {
-        ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
-      }
-
-      PlayerOrientation.Portrait -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-      PlayerOrientation.ReversePortrait -> ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT
-      PlayerOrientation.SensorPortrait -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
-      PlayerOrientation.Landscape -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-      PlayerOrientation.ReverseLandscape -> ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT
-      PlayerOrientation.SensorLandscape -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+    val expected = RotationLogic.requestedOrientation(
+      mode = mode,
+      lockedOrientation = playerPreferences.lockedOrientation.get(),
+      preference = playerPreferences.orientation.get(),
+    )
+    requestedOrientation = expected
+    // A silent mismatch here is exactly what made the rotate button look dead, so
+    // the value the activity actually kept is logged every time it is set.
+    if (RotationLogic.applied(requestedOrientation, expected)) {
+      Log.d(ROTATION_TAG, "orientation mode=$mode requested=$requestedOrientation")
+    } else {
+      Log.w(ROTATION_TAG, "orientation NOT applied: wanted=$expected got=$requestedOrientation")
     }
   }
 
@@ -1077,7 +1179,12 @@ class PlayerActivity : AppCompatActivity() {
     /** JSON of the folder queue, so next/shuffle/delete work inside playback. */
     const val EXTRA_QUEUE = "live.mehiz.mpvkt.ui.player.queue"
 
+    /** Keys that failed to open in this auto-advance chain. */
+    const val EXTRA_FAILED_KEYS = "live.mehiz.mpvkt.ui.player.failed_keys"
+
     private const val RESUME_TICK_MS = 5_000L
+    private const val ROTATION_TAG = "VelaRotation"
+    private const val QUEUE_TAG = "VelaQueue"
   }
 }
 

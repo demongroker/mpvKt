@@ -6,6 +6,24 @@ Newest first. Each entry describes one reviewable step.
 
 Nothing yet.
 
+### 0.1.14 — playback fixes
+- **fix(rotate): the button now actually changes orientation.** Auto mode asks for
+  `SCREEN_ORIENTATION_SENSOR` (sensor-driven, follows the screen); Locked mode sets
+  the current orientation explicitly. The value the activity keeps is logged after
+  every change, and the state is read from preferences whenever the player starts.
+  When Auto is on but the system's own auto-rotate is off, the player says
+  "Turn on auto-rotate in Quick Settings to follow the screen" instead of doing
+  nothing silently.
+- **fix(next): the next file plays.** `MPV_EVENT_END_FILE` is logged with its
+  reason (EOF / STOP / ERROR) and the queue position. On EOF the next item is
+  found by key, then by uri, path or name, so a resolved descriptor no longer
+  breaks advancement; without a queue the folder is looked up and rebuilt from the
+  library. A file that fails to open is skipped (up to three) instead of freezing
+  on the last frame, and a URL with no folder simply stops.
+- **fix(overlay): the brightness/volume slider hides 1.5 s after the last
+  gesture** (it waited 2 s before and could stick), and tapping anywhere on the
+  video dismisses it immediately.
+
 ### 0.1.13 — playback controls
 - **feat(delete): delete a file for good, from the library or from playback.** The
   in-app confirmation ("Delete <name> permanently?", red button) comes first, then
