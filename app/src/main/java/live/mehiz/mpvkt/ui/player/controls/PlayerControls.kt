@@ -571,7 +571,7 @@ fun PlayerControls(
       }
     }
     val sheetShown by viewModel.sheetShown.collectAsState()
-    val subtitles by viewModel.subtitleTracks.collectAsState()
+    val subtitles by viewModel.subtitleTracks.collectAsState(persistentListOf())
     val audioTracks by viewModel.audioTracks.collectAsState(persistentListOf())
     val sleepTimerTimeRemaining by viewModel.remainingTime.collectAsState()
     val speedPresets by playerPreferences.speedPresets.collectAsState()
