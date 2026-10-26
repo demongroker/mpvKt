@@ -4,10 +4,13 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import dev.vivvvek.seeker.Segment
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import live.mehiz.mpvkt.database.entities.CustomButtonEntity
+import live.mehiz.mpvkt.subtitles.SubtitleHit
+import live.mehiz.mpvkt.subtitles.SubtitleSearchState
 import live.mehiz.mpvkt.ui.player.Decoder
 import live.mehiz.mpvkt.ui.player.Panels
 import live.mehiz.mpvkt.ui.player.Sheets
@@ -17,6 +20,7 @@ import live.mehiz.mpvkt.ui.player.controls.components.sheets.ChaptersSheet
 import live.mehiz.mpvkt.ui.player.controls.components.sheets.DecodersSheet
 import live.mehiz.mpvkt.ui.player.controls.components.sheets.MoreSheet
 import live.mehiz.mpvkt.ui.player.controls.components.sheets.PlaybackSpeedSheet
+import live.mehiz.mpvkt.ui.player.controls.components.sheets.SubtitleSearchSheet
 import live.mehiz.mpvkt.ui.player.controls.components.sheets.SubtitlesSheet
 
 @Composable
@@ -27,6 +31,10 @@ fun PlayerSheets(
   subtitles: ImmutableList<TrackNode>,
   onAddSubtitle: (Uri) -> Unit,
   onSelectSubtitle: (Int) -> Unit,
+  onOpenSubtitleSearch: () -> Unit,
+  subtitleSearch: SubtitleSearchState,
+  onSearchSubtitles: () -> Unit,
+  onDownloadSubtitle: (SubtitleHit) -> Unit,
   // audio sheet
   audioTracks: ImmutableList<TrackNode>,
   onAddAudio: (Uri) -> Unit,
@@ -70,6 +78,17 @@ fun PlayerSheets(
         onAddSubtitle = { subtitlesPicker.launch(arrayOf("*/*")) },
         onOpenSubtitleSettings = { onOpenPanel(Panels.SubtitleSettings) },
         onOpenSubtitleDelay = { onOpenPanel(Panels.SubtitleDelay) },
+        onOpenSubtitleSearch = onOpenSubtitleSearch,
+        onDismissRequest = onDismissRequest,
+      )
+    }
+
+    Sheets.SubtitleSearch -> {
+      LaunchedEffect(Unit) { onSearchSubtitles() }
+      SubtitleSearchSheet(
+        state = subtitleSearch,
+        onRetry = onSearchSubtitles,
+        onPick = onDownloadSubtitle,
         onDismissRequest = onDismissRequest,
       )
     }

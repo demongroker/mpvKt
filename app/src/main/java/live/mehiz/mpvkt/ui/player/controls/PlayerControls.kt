@@ -571,7 +571,8 @@ fun PlayerControls(
       }
     }
     val sheetShown by viewModel.sheetShown.collectAsState()
-    val subtitles by viewModel.subtitleTracks.collectAsState(persistentListOf())
+    val subtitles by viewModel.subtitleTracks.collectAsState()
+    val subtitleSearch by viewModel.subtitleSearch.collectAsState()
     val audioTracks by viewModel.audioTracks.collectAsState(persistentListOf())
     val sleepTimerTimeRemaining by viewModel.remainingTime.collectAsState()
     val speedPresets by playerPreferences.speedPresets.collectAsState()
@@ -580,6 +581,10 @@ fun PlayerControls(
       subtitles = subtitles,
       onAddSubtitle = viewModel::addSubtitle,
       onSelectSubtitle = viewModel::selectSub,
+      onOpenSubtitleSearch = { onOpenSheet(Sheets.SubtitleSearch) },
+      subtitleSearch = subtitleSearch,
+      onSearchSubtitles = viewModel::searchSubtitles,
+      onDownloadSubtitle = viewModel::downloadSubtitle,
       audioTracks = audioTracks,
       onAddAudio = viewModel::addAudio,
       onSelectAudio = {

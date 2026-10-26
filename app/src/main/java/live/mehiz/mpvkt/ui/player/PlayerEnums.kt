@@ -63,6 +63,7 @@ enum class Sheets {
   None,
   PlaybackSpeed,
   SubtitleTracks,
+  SubtitleSearch,
   AudioTracks,
   Chapters,
   Decoders,

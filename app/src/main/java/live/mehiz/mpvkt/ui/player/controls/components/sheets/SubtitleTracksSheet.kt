@@ -1,6 +1,7 @@
 package live.mehiz.mpvkt.ui.player.controls.components.sheets
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -31,6 +32,7 @@ fun SubtitlesSheet(
   tracks: ImmutableList<TrackNode>,
   onSelect: (Int) -> Unit,
   onAddSubtitle: () -> Unit,
+  onOpenSubtitleSearch: () -> Unit,
   onOpenSubtitleSettings: () -> Unit,
   onOpenSubtitleDelay: () -> Unit,
   onDismissRequest: () -> Unit,
@@ -40,18 +42,24 @@ fun SubtitlesSheet(
     tracks,
     onDismissRequest = onDismissRequest,
     header = {
-      AddTrackRow(
-        stringResource(R.string.player_sheets_add_ext_sub),
-        onAddSubtitle,
-        actions = {
-          IconButton(onClick = onOpenSubtitleSettings) {
-            Icon(Icons.Default.Palette, null)
-          }
-          IconButton(onClick = onOpenSubtitleDelay) {
-            Icon(Icons.Default.MoreTime, null)
-          }
-        },
-      )
+      Column {
+        AddTrackRow(
+          stringResource(R.string.player_sheets_add_ext_sub),
+          onAddSubtitle,
+          actions = {
+            IconButton(onClick = onOpenSubtitleSettings) {
+              Icon(Icons.Default.Palette, null)
+            }
+            IconButton(onClick = onOpenSubtitleDelay) {
+              Icon(Icons.Default.MoreTime, null)
+            }
+          },
+        )
+        AddTrackRow(
+          "Download subtitles (OpenSubtitles)",
+          onOpenSubtitleSearch,
+        )
+      }
     },
     track = { track ->
       SubtitleTrackRow(
