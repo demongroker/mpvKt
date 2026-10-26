@@ -21,7 +21,7 @@ android {
     applicationId = "app.vela.player"
     minSdk = 21
     targetSdk = 36
-    versionCode = 240
+    versionCode = 241
     versionName = "0.1.11"
 
     vectorDrawables {
@@ -29,6 +29,7 @@ android {
     }
 
     buildConfigField("String", "GIT_SHA", "\"${getCommitSha()}\"")
+    buildConfigField("String", "GIT_TAG", "\"${getGitTag()}\"")
     buildConfigField("int", "GIT_COUNT", getCommitCount())
   }
   signingConfigs {
@@ -189,11 +190,15 @@ tasks.withType<Detekt>().configureEach {
 
 fun getCommitCount(): String = runCommand("git rev-list --count HEAD")
 fun getCommitSha(): String = runCommand("git rev-parse --short HEAD")
+
+/** Nearest tag, e.g. v0.1.11-vela11 — used to compare the installed build with a release. */
+fun getGitTag(): String = runCommand("git describe --tags --abbrev=0").trim()
 fun runCommand(command: String): String {
   val stdOut = ByteArrayOutputStream()
   exec {
     commandLine = command.split(' ')
     standardOutput = stdOut
+    isIgnoreExitValue = true
   }
   return String(stdOut.toByteArray()).trim()
 }

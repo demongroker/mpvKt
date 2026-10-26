@@ -15,6 +15,19 @@ class UpdateLogicTest {
   }
 
   @Test
+  fun versionParsingKeepsTheVelaBuildNumber() {
+    assertEquals(
+      UpdateLogic.VersionNumber(0, 1, 10, 10),
+      UpdateLogic.parseVersion("v0.1.10-vela10"),
+    )
+    assertEquals(UpdateLogic.VersionNumber(0, 1, 11, 0), UpdateLogic.parseVersion("0.1.11"))
+    assertEquals(UpdateLogic.VersionNumber(2, 0, 3, 42), UpdateLogic.parseVersion("V2.0.3-vela42"))
+    assertNull(UpdateLogic.parseVersion("nightly"))
+    assertNull(UpdateLogic.parseVersion(""))
+    assertNull(UpdateLogic.parseVersion(null))
+  }
+
+  @Test
   fun newerVersionIsDetected() {
     assertTrue(UpdateLogic.isNewer("v0.1.10-vela10", "0.1.8"))
     assertTrue(UpdateLogic.isNewer("v0.2.0-vela20", "0.1.99"))
@@ -26,6 +39,99 @@ class UpdateLogicTest {
   fun malformedTagNeverLooksNewer() {
     assertFalse(UpdateLogic.isNewer("nightly", "0.1.8"))
     assertFalse(UpdateLogic.isNewer("", "0.1.8"))
+  }
+
+  // The bug from 0.1.10: the banner kept offering the version already installed,
+  // because the release tag was compared with the build's git sha.
+
+  @Test
+  fun installedVersionNeverSeesItsOwnRelease() {
+    assertFalse(
+      UpdateLogic.isUpdateAvailable(
+        remoteTag = "v0.1.10-vela10",
+        installedVersionName = "0.1.10",
+        installedTag = "v0.1.10-vela10",
+        installedVersionCode = 230,
+      ),
+    )
+    assertFalse(
+      UpdateLogic.isUpdateAvailable(
+        remoteTag = "v0.1.11-vela11",
+        installedVersionName = "0.1.11",
+        installedTag = "v0.1.11-vela11",
+        installedVersionCode = 240,
+      ),
+    )
+  }
+
+  @Test
+  fun olderInstallIsOfferedTheNewerRelease() {
+    assertTrue(
+      UpdateLogic.isUpdateAvailable(
+        remoteTag = "v0.1.10-vela10",
+        installedVersionName = "0.1.9",
+        installedTag = "v0.1.9-vela9",
+        installedVersionCode = 220,
+      ),
+    )
+    assertTrue(
+      UpdateLogic.isUpdateAvailable(
+        remoteTag = "v0.1.11-vela11",
+        installedVersionName = "0.1.10",
+        installedTag = "v0.1.10-vela10",
+        installedVersionCode = 230,
+      ),
+    )
+  }
+
+  @Test
+  fun newerInstallIsNotOfferedAnOlderRelease() {
+    assertFalse(
+      UpdateLogic.isUpdateAvailable(
+        remoteTag = "v0.1.9-vela9",
+        installedVersionName = "0.1.10",
+        installedTag = "v0.1.10-vela10",
+        installedVersionCode = 230,
+      ),
+    )
+    // 0.1.2 vs 0.1.10 must compare numerically, not as strings.
+    assertFalse(
+      UpdateLogic.isUpdateAvailable(
+        remoteTag = "v0.1.2-vela2",
+        installedVersionName = "0.1.10",
+        installedTag = "v0.1.10-vela10",
+        installedVersionCode = 230,
+      ),
+    )
+  }
+
+  @Test
+  fun sameVersionWithAHigherVelaBuildIsAnUpdate() {
+    assertTrue(
+      UpdateLogic.isUpdateAvailable(
+        remoteTag = "v0.1.11-vela12",
+        installedVersionName = "0.1.11",
+        installedTag = "v0.1.11-vela11",
+        installedVersionCode = 240,
+      ),
+    )
+    // Without an installed tag the versionCode is the fallback guard.
+    assertFalse(
+      UpdateLogic.isUpdateAvailable(
+        remoteTag = "v0.1.11-vela11",
+        installedVersionName = "0.1.11",
+        installedTag = "",
+        installedVersionCode = 240,
+      ),
+    )
+  }
+
+  @Test
+  fun unreadableTagsNeverShowABanner() {
+    assertFalse(UpdateLogic.isUpdateAvailable("nightly", "0.1.10", "v0.1.10-vela10", 230))
+    assertFalse(UpdateLogic.isUpdateAvailable("", "0.1.10", "v0.1.10-vela10", 230))
+    assertFalse(UpdateLogic.isUpdateAvailable("v0.1.11-vela11", "unknown", "", 240))
+    assertFalse(UpdateLogic.isUpdateAvailable(null, null, null, 0))
   }
 
   @Test

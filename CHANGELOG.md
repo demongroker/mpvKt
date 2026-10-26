@@ -5,6 +5,12 @@ Newest first. Each entry describes one reviewable step.
 ## Unreleased
 
 ### 0.1.11
+- **fix(update): the banner no longer offers the version you already have.**
+  The release tag is parsed into major.minor.patch plus the `-vela<N>` build and
+  compared numerically with the installed build (versionName, git tag, and the
+  versionCode as a fallback). The banner appears only when the release is
+  strictly newer, and the check runs fresh on every launch — nothing about
+  "update available" is cached.
 - **fix(home): neutral URL field.** The address box no longer shows "Invalid
   protocol" on a fresh screen; the message appears only once what you typed
   cannot be played. Validation moved into `UrlValidation` with unit tests.

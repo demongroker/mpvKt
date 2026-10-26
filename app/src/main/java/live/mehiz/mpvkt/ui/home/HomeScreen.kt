@@ -62,6 +62,7 @@ import live.mehiz.mpvkt.ui.preferences.PreferencesScreen
 import live.mehiz.mpvkt.ui.theme.spacing
 import live.mehiz.mpvkt.ui.update.ChangelogScreen
 import live.mehiz.mpvkt.ui.utils.LocalBackStack
+import live.mehiz.mpvkt.update.UpdateLogic
 import org.koin.compose.koinInject
 import live.mehiz.mpvkt.update.GhRelease
 import live.mehiz.mpvkt.update.Updater
@@ -173,10 +174,16 @@ object HomeScreen : Screen {
       var update by remember { mutableStateOf<GhRelease?>(null) }
       val advancedPreferences = koinInject<AdvancedPreferences>()
       LaunchedEffect(Unit) {
+        // Re-checked on every launch; no "update available" flag is cached, so a
+        // stale answer can never keep the banner alive after an update.
         val latest = Updater.latest()
-        if (latest != null && Updater.releaseSha(latest) != BuildConfig.GIT_SHA) {
-          update = latest
-        }
+        val available = latest != null && UpdateLogic.isUpdateAvailable(
+          remoteTag = latest.tag,
+          installedVersionName = BuildConfig.VERSION_NAME,
+          installedTag = BuildConfig.GIT_TAG,
+          installedVersionCode = BuildConfig.VERSION_CODE,
+        )
+        update = if (available) latest else null
       }
       val dismissedTag by advancedPreferences.dismissedUpdateTag.collectAsState()
       Box(modifier = Modifier.fillMaxSize().padding(padding)) {
