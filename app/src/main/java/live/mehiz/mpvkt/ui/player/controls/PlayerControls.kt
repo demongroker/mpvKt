@@ -87,6 +87,7 @@ import live.mehiz.mpvkt.ui.player.Panels
 import live.mehiz.mpvkt.ui.player.PlayerActivity
 import live.mehiz.mpvkt.ui.player.PlayerUpdates
 import live.mehiz.mpvkt.ui.player.PlayerViewModel
+import live.mehiz.mpvkt.ui.player.CenterButtonIcon
 import live.mehiz.mpvkt.ui.player.RotationMode
 import live.mehiz.mpvkt.ui.player.Sheets
 import live.mehiz.mpvkt.ui.player.VideoAspect
@@ -132,6 +133,13 @@ fun PlayerControls(
   val seekBarShown by viewModel.seekBarShown.collectAsState()
   val pausedForCache by MPVLib.propBoolean["paused-for-cache"].collectAsState()
   val paused by MPVLib.propBoolean["pause"].collectAsState()
+  // The centre icon mirrors mpv, never the last tap. It is refreshed whenever the
+  // property changes and whenever the controls come back (file load, background
+  // return, auto-next), so a gesture or a system media button is reflected too.
+  var pauseConfirmedByMpv by remember { mutableStateOf<Boolean?>(null) }
+  LaunchedEffect(paused, controlsShown, areControlsLocked) {
+    pauseConfirmedByMpv = paused ?: MPVLib.getPropertyBoolean("pause")
+  }
   val duration by MPVLib.propInt["duration"].collectAsState()
   val position by MPVLib.propInt["time-pos"].collectAsState()
   val playbackSpeed by MPVLib.propFloat["speed"].collectAsState()
@@ -439,7 +447,10 @@ fun PlayerControls(
             }
 
             controlsShown && !areControlsLocked -> Image(
-              painter = rememberAnimatedVectorPainter(icon, paused == false),
+              painter = rememberAnimatedVectorPainter(
+                icon,
+                atEnd = CenterButtonIcon.showPause(pauseConfirmedByMpv),
+              ),
               modifier = Modifier
                 .size(96.dp)
                 .clip(CircleShape)

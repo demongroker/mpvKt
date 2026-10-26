@@ -6,6 +6,24 @@ Newest first. Each entry describes one reviewable step.
 
 Nothing yet.
 
+### 0.1.16 — the queue stays in the player
+- **fix(next): Next and Previous no longer drop you back to the library.** They used
+  to start a second PlayerActivity and finish the current one. The file is now
+  swapped inside the running session: the player stays on screen, the new file starts
+  from the top (its own saved position is applied), the queue and the shuffle state
+  are kept, and resume/delete/rotation all follow the new file.
+- **fix(next): a file that will not open no longer freezes the player.** If no
+  `FILE_LOADED` arrives within 4 s the item is marked failed, a short message is
+  shown, and the following item is tried — up to the existing skip cap. The session
+  is never finished.
+- **fix(play/pause): the centre icon follows mpv, not the last tap.** It is driven by
+  mpv's `pause` property (Pause while playing, Play while paused), refreshed on every
+  property change, on file load and on return from background, so gesture pauses and
+  system media buttons are reflected too. The glyph only flips once mpv confirms.
+- Diagnostics: every Next/Previous tap logs `VelaQueue … current=<key> target=<key>
+  activityFinished=false queue=<n>`, failures log `VelaQueue open failed: …`, and the
+  pause state is logged under `VelaPause` on load and on resume.
+
 ### 0.1.15 — player UI fixes
 - **fix(more sheet): labels are no longer squeezed.** The title has its own line and
   the actions sit in a wrapping row, each with a minimum width, wrapping at word

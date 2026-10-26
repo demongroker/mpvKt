@@ -99,6 +99,12 @@ class PlayerActivity : AppCompatActivity() {
   /** The folder queue, handed over by the library so next/shuffle/delete work here. */
   private var queue: PlaybackQueue? = null
 
+  /** Files that already failed to open in this session's auto-advance chain. */
+  private val pendingFailedKeys = mutableSetOf<String>()
+
+  /** Incremented on every load attempt and on FILE_LOADED, so the timeout can tell. */
+  private var loadToken = 0
+
   /** MediaStore shows its own confirmation; only RESULT_OK may delete anything. */
   private val deleteLauncher = registerForActivityResult(
     ActivityResultContracts.StartIntentSenderForResult(),
@@ -455,6 +461,10 @@ class PlayerActivity : AppCompatActivity() {
         if (it < viewModel.maxVolume) viewModel.changeMPVVolumeTo(100)
       }
     }
+    // Returning from background: re-read mpv so the centre icon is right at once.
+    val pausedNow = MPVLib.getPropertyBoolean("pause")
+    Log.d(PAUSE_TAG, "onResume pause=$pausedNow state=${CenterButtonIcon.stateLabel(pausedNow)}")
+    setOrientation()
   }
 
   private val serviceConnection = object : ServiceConnection {
@@ -603,6 +613,8 @@ class PlayerActivity : AppCompatActivity() {
     if (player.isExiting) return
     when (eventId) {
       MPVLib.mpvEventId.MPV_EVENT_FILE_LOADED -> {
+        loadToken++
+        Log.d(PAUSE_TAG, "file loaded pause=${MPVLib.getPropertyBoolean("pause")}")
         fileName = getFileName(intent)
         setIntentExtras(intent.extras)
         val mediaTitle = MPVLib.getPropertyString("media-title")
@@ -689,17 +701,19 @@ class PlayerActivity : AppCompatActivity() {
       Log.d(QUEUE_TAG, "no previous item (queue=${queue?.items?.size ?: 0})")
       return
     }
-    Log.d(QUEUE_TAG, "going back to ${item.name}")
-    startQueueItem(item, currentFailedKeys())
+    openItemInPlace(item, "Previous")
   }
 
-  private fun currentFailedKeys(): Set<String> =
-    intent.getStringExtra(EXTRA_FAILED_KEYS)
-      ?.split(',')
-      ?.map { it.trim() }
-      ?.filter { it.isNotEmpty() }
-      ?.toSet()
-      .orEmpty()
+  private fun currentFailedKeys(): Set<String> {
+    if (pendingFailedKeys.isEmpty()) {
+      intent.getStringExtra(EXTRA_FAILED_KEYS)
+        ?.split(',')
+        ?.map { it.trim() }
+        ?.filter { it.isNotEmpty() }
+        ?.forEach { pendingFailedKeys += it }
+    }
+    return pendingFailedKeys.toSet()
+  }
 
   private fun currentUriString(): String = intent.data?.toString().orEmpty()
 
@@ -725,7 +739,7 @@ class PlayerActivity : AppCompatActivity() {
       loop = playerPreferences.loopFolder.get(),
     )
     if (item != null) {
-      startQueueItem(item, failedKeys)
+      openItemInPlace(item, "Next")
       return
     }
     if (queue == null) {
@@ -735,19 +749,72 @@ class PlayerActivity : AppCompatActivity() {
     }
   }
 
-  private fun startQueueItem(item: QueueItem, failedKeys: Set<String>) {
-    Log.d(QUEUE_TAG, "advancing to ${item.name} (failed=${failedKeys.size})")
-    val nextIntent = Intent(this, PlayerActivity::class.java).apply {
-      data = item.uri.toUri()
-      putExtra(EXTRA_MEDIA_ID, item.mediaId)
-      putExtra(EXTRA_MEDIA_PATH, item.path.ifBlank { item.uri })
-      putExtra(EXTRA_QUEUE, queue?.toJson())
-      if (failedKeys.isNotEmpty()) putExtra(EXTRA_FAILED_KEYS, failedKeys.joinToString(","))
+  /**
+   * Swaps the file inside the running player. Starting a second PlayerActivity and
+   * finishing this one is what dropped the owner back to the library, so the queue
+   * buttons now load into the same session instead.
+   */
+  private fun openItemInPlace(item: QueueItem, direction: String) {
+    pendingFailedKeys -= item.fileKey
+    val session = PlayerSessionLogic.openInPlace(currentSession(), item)
+    Log.d(QUEUE_TAG, PlayerSessionLogic.tapLog(direction, session, item.fileKey))
+
+    val uriString = item.uri
+    val playable = runCatching {
+      if (uriString.startsWith("content://")) uriString.toUri().openContentFd(this) else uriString
+    }.getOrNull()
+    if (playable.isNullOrBlank()) {
+      onQueueItemFailed(item, direction)
+      return
     }
-    player.isExiting = true
-    startActivity(nextIntent)
-    finish()
+
+    // Adopt the new file's identity first, so resume, delete and rotation point at it.
+    intent.data = uriString.toUri()
+    intent.putExtra(EXTRA_MEDIA_ID, item.mediaId)
+    intent.putExtra(EXTRA_MEDIA_PATH, item.path.ifBlank { uriString })
+    queue?.let { intent.putExtra(EXTRA_QUEUE, it.toJson()) }
+    resumeFileKey = session.fileKey
+    fileName = item.name
+    // The new file starts from the top (its own saved position is applied on load).
+    MPVLib.setPropertyInt("time-pos", 0)
+
+    val token = ++loadToken
+    player.playFile(playable)
+    lifecycleScope.launch {
+      delay(OPEN_TIMEOUT_MS)
+      // No FILE_LOADED means it never opened: stay here and try the following file.
+      if (loadToken == token) onQueueItemFailed(item, direction)
+    }
   }
+
+  /** A queued file did not open: message the owner, stay open, skip forward. */
+  private fun onQueueItemFailed(item: QueueItem, direction: String) {
+    if (item.fileKey in pendingFailedKeys) return
+    pendingFailedKeys += item.fileKey
+    val session = currentSession()
+    val following = PlayerSessionLogic.nextTarget(
+      session = session,
+      currentUri = currentUriString(),
+      currentPath = currentPathString(),
+      currentName = currentNameString(),
+      failedKeys = pendingFailedKeys,
+      loop = playerPreferences.loopFolder.get(),
+    )
+    val after = PlayerSessionLogic.afterFailure(session, item.fileKey, following)
+    Log.d(
+      QUEUE_TAG,
+      "open failed: key=${item.fileKey} direction=$direction following=${following?.fileKey ?: "none"} " +
+        "failed=${pendingFailedKeys.size} activityFinished=${after.activityFinished}",
+    )
+    if (following == null || pendingFailedKeys.size > QueueAdvance.MAX_SKIPS) {
+      Toast.makeText(this, "Couldn't open the next file", Toast.LENGTH_SHORT).show()
+      return
+    }
+    openItemInPlace(following, direction)
+  }
+
+  private fun currentSession(): PlayerSessionLogic.Session =
+    PlayerSessionLogic.Session.fromQueue(queue, resumeFileKey)
 
   /** No queue was handed over (URL or picker): rebuild it from the file's own folder. */
   private fun rebuildQueueThenPlay(failedKeys: Set<String>) {
@@ -782,7 +849,11 @@ class PlayerActivity : AppCompatActivity() {
         loop = playerPreferences.loopFolder.get(),
       )
       withContext(Dispatchers.Main) {
-        if (item != null) startQueueItem(item, failedKeys) else Log.d(QUEUE_TAG, "rebuilt queue had nothing after this file")
+        if (item != null) {
+          openItemInPlace(item, "Next")
+        } else {
+          Log.d(QUEUE_TAG, "rebuilt queue had nothing after this file")
+        }
       }
     }
   }
@@ -1213,8 +1284,12 @@ class PlayerActivity : AppCompatActivity() {
     const val EXTRA_FAILED_KEYS = "live.mehiz.mpvkt.ui.player.failed_keys"
 
     private const val RESUME_TICK_MS = 5_000L
+
+    /** How long a queued file gets to report FILE_LOADED before it counts as failed. */
+    private const val OPEN_TIMEOUT_MS = 4_000L
     private const val ROTATION_TAG = "VelaRotation"
     private const val QUEUE_TAG = "VelaQueue"
+    private const val PAUSE_TAG = "VelaPause"
   }
 }
 
