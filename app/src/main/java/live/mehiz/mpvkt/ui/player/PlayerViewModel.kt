@@ -38,10 +38,10 @@ import live.mehiz.mpvkt.preferences.GesturePreferences
 import live.mehiz.mpvkt.preferences.PlayerPreferences
 import live.mehiz.mpvkt.subtitles.SubtitleDownloader
 import live.mehiz.mpvkt.subtitles.SubtitleHit
-import live.mehiz.mpvkt.subtitles.SubtitleSearchState
 import live.mehiz.mpvkt.ui.custombuttons.CustomButtonsUiState
 import live.mehiz.mpvkt.ui.custombuttons.getButtons
 import org.koin.java.KoinJavaComponent.inject
+import java.io.File
 import kotlin.properties.ReadOnlyProperty
 import kotlin.reflect.KProperty
 
@@ -175,53 +175,18 @@ class PlayerViewModel(
     MPVLib.command("audio-add", path ?: return, "cached")
   }
 
-  /** State of the "download subtitles" sheet. */
-  val subtitleSearch = MutableStateFlow<SubtitleSearchState>(SubtitleSearchState.Idle(""))
-  private var subtitleQuery = ""
-
-  private fun currentFileName(): String =
+  /** Name of the file that is playing right now — the subtitle search seed. */
+  fun currentFileName(): String =
     MPVLib.getPropertyString("filename")?.takeIf { it.isNotBlank() }
       ?: MPVLib.getPropertyString("media-title").orEmpty()
 
-  /** Searches OpenSubtitles for the file that is playing right now. */
-  fun searchSubtitles() {
-    val query = currentFileName()
-    subtitleQuery = query
-    if (query.isBlank()) {
-      subtitleSearch.update {
-        SubtitleSearchState.Failed(query, "Vela doesn't know this file's name — add a subtitle file instead")
-      }
-      return
-    }
-    viewModelScope.launch {
-      subtitleSearch.update { SubtitleSearchState.Searching(query) }
-      val hits = SubtitleDownloader.search(query)
-      subtitleSearch.update {
-        if (hits.isEmpty()) {
-          SubtitleSearchState.Failed(query, "No English subtitles found for “$query”")
-        } else {
-          SubtitleSearchState.Results(query, hits)
-        }
-      }
-    }
-  }
+  suspend fun findSubtitles(query: String): List<SubtitleHit> = SubtitleDownloader.search(query)
 
-  /** Downloads the picked subtitle and loads it as the selected track. */
-  fun downloadSubtitle(hit: SubtitleHit) {
-    viewModelScope.launch {
-      subtitleSearch.update { SubtitleSearchState.Downloading(hit.fileName) }
-      val file = SubtitleDownloader.download(activity, hit, subtitleQuery)
-      if (file == null) {
-        subtitleSearch.update {
-          SubtitleSearchState.Failed(subtitleQuery, "That subtitle couldn't be downloaded — try another")
-        }
-        return@launch
-      }
-      MPVLib.command("sub-add", file.absolutePath, "select")
-      sheetShown.update { Sheets.None }
-      Toast.makeText(activity, "Subtitle added", Toast.LENGTH_SHORT).show()
-    }
-  }
+  suspend fun saveSubtitle(hit: SubtitleHit, query: String): File? =
+    SubtitleDownloader.download(activity, hit, query)
+
+  /** Loads a downloaded subtitle as the selected track. */
+  fun loadSubtitle(file: File) = MPVLib.command("sub-add", file.absolutePath, "select")
 
   fun addSubtitle(uri: Uri) {
     val url = uri.toString()

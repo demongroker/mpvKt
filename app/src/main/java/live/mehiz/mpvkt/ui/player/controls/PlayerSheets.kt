@@ -4,13 +4,11 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import dev.vivvvek.seeker.Segment
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import live.mehiz.mpvkt.database.entities.CustomButtonEntity
 import live.mehiz.mpvkt.subtitles.SubtitleHit
-import live.mehiz.mpvkt.subtitles.SubtitleSearchState
 import live.mehiz.mpvkt.ui.player.Decoder
 import live.mehiz.mpvkt.ui.player.Panels
 import live.mehiz.mpvkt.ui.player.Sheets
@@ -32,9 +30,10 @@ fun PlayerSheets(
   onAddSubtitle: (Uri) -> Unit,
   onSelectSubtitle: (Int) -> Unit,
   onOpenSubtitleSearch: () -> Unit,
-  subtitleSearch: SubtitleSearchState,
-  onSearchSubtitles: () -> Unit,
-  onDownloadSubtitle: (SubtitleHit) -> Unit,
+  subtitleQuery: String,
+  onFindSubtitles: suspend (String) -> List<SubtitleHit>,
+  onSaveSubtitle: suspend (SubtitleHit, String) -> java.io.File?,
+  onSubtitleLoaded: (java.io.File) -> Unit,
   // audio sheet
   audioTracks: ImmutableList<TrackNode>,
   onAddAudio: (Uri) -> Unit,
@@ -84,11 +83,11 @@ fun PlayerSheets(
     }
 
     Sheets.SubtitleSearch -> {
-      LaunchedEffect(Unit) { onSearchSubtitles() }
       SubtitleSearchSheet(
-        state = subtitleSearch,
-        onRetry = onSearchSubtitles,
-        onPick = onDownloadSubtitle,
+        query = subtitleQuery,
+        onFind = onFindSubtitles,
+        onSave = onSaveSubtitle,
+        onLoaded = onSubtitleLoaded,
         onDismissRequest = onDismissRequest,
       )
     }

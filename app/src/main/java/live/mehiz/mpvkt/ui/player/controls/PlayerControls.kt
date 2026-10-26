@@ -68,7 +68,6 @@ import live.mehiz.mpvkt.R
 import live.mehiz.mpvkt.preferences.AudioPreferences
 import live.mehiz.mpvkt.preferences.PlayerPreferences
 import live.mehiz.mpvkt.preferences.preference.collectAsState
-import live.mehiz.mpvkt.subtitles.SubtitleSearchState
 import live.mehiz.mpvkt.preferences.preference.deleteAndGet
 import live.mehiz.mpvkt.preferences.preference.minusAssign
 import live.mehiz.mpvkt.preferences.preference.plusAssign
@@ -573,10 +572,6 @@ fun PlayerControls(
     }
     val sheetShown by viewModel.sheetShown.collectAsState()
     val subtitles by viewModel.subtitleTracks.collectAsState()
-    var subtitleSearch by remember { mutableStateOf<SubtitleSearchState>(SubtitleSearchState.Idle("")) }
-    LaunchedEffect(viewModel) {
-      viewModel.subtitleSearch.collect { subtitleSearch = it }
-    }
     val audioTracks by viewModel.audioTracks.collectAsState(persistentListOf())
     val sleepTimerTimeRemaining by viewModel.remainingTime.collectAsState()
     val speedPresets by playerPreferences.speedPresets.collectAsState()
@@ -586,9 +581,10 @@ fun PlayerControls(
       onAddSubtitle = viewModel::addSubtitle,
       onSelectSubtitle = viewModel::selectSub,
       onOpenSubtitleSearch = { onOpenSheet(Sheets.SubtitleSearch) },
-      subtitleSearch = subtitleSearch,
-      onSearchSubtitles = viewModel::searchSubtitles,
-      onDownloadSubtitle = viewModel::downloadSubtitle,
+      subtitleQuery = viewModel.currentFileName(),
+      onFindSubtitles = viewModel::findSubtitles,
+      onSaveSubtitle = viewModel::saveSubtitle,
+      onSubtitleLoaded = viewModel::loadSubtitle,
       audioTracks = audioTracks,
       onAddAudio = viewModel::addAudio,
       onSelectAudio = {

@@ -16,28 +16,69 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import live.mehiz.mpvkt.presentation.components.PlayerSheet
 import live.mehiz.mpvkt.subtitles.SubtitleHit
 import live.mehiz.mpvkt.subtitles.SubtitleLogic
 import live.mehiz.mpvkt.subtitles.SubtitleSearchState
+import java.io.File
 import java.util.Locale
 
 /**
- * "Download subtitles" sheet: searches OpenSubtitles with the current file name
- * and hands the picked result back for mpv to load beside the video.
+ * "Download subtitles" sheet: searches OpenSubtitles with the name of the file
+ * that is playing and loads the picked result as the selected track.
  */
 @Composable
 fun SubtitleSearchSheet(
-  state: SubtitleSearchState,
-  onRetry: () -> Unit,
-  onPick: (SubtitleHit) -> Unit,
+  query: String,
+  onFind: suspend (String) -> List<SubtitleHit>,
+  onSave: suspend (SubtitleHit, String) -> File?,
+  onLoaded: (File) -> Unit,
   onDismissRequest: () -> Unit,
   modifier: Modifier = Modifier,
 ) {
+  val scope = rememberCoroutineScope()
+  var state by remember { mutableStateOf<SubtitleSearchState>(SubtitleSearchState.Idle(query)) }
+  var attempt by remember { mutableIntStateOf(0) }
+
+  LaunchedEffect(query, attempt) {
+    if (query.isBlank()) {
+      state = SubtitleSearchState.Failed(query, "Vela doesn't know this file's name — add a subtitle file instead")
+      return@LaunchedEffect
+    }
+    state = SubtitleSearchState.Searching(query)
+    val hits = runCatching { onFind(query) }.getOrDefault(emptyList())
+    state = if (hits.isEmpty()) {
+      SubtitleSearchState.Failed(query, "No subtitles found for “$query”")
+    } else {
+      SubtitleSearchState.Results(query, hits)
+    }
+  }
+
+  fun pick(hit: SubtitleHit) {
+    scope.launch {
+      state = SubtitleSearchState.Downloading(hit.fileName)
+      val file = runCatching { onSave(hit, query) }.getOrNull()
+      if (file == null) {
+        state = SubtitleSearchState.Failed(query, "That subtitle couldn't be downloaded — try another")
+      } else {
+        onLoaded(file)
+        onDismissRequest()
+      }
+    }
+  }
+
   PlayerSheet(onDismissRequest) {
     Column(modifier.fillMaxWidth().heightIn(max = 420.dp)) {
       Text(
@@ -45,12 +86,12 @@ fun SubtitleSearchSheet(
         style = MaterialTheme.typography.titleMedium,
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
       )
-      when (state) {
-        is SubtitleSearchState.Idle -> BusyRow("Looking for “${state.query}”…")
-        is SubtitleSearchState.Searching -> BusyRow("Looking for “${state.query}”…")
-        is SubtitleSearchState.Downloading -> BusyRow("Downloading ${state.fileName}…")
-        is SubtitleSearchState.Failed -> FailedRow(state.reason, onRetry)
-        is SubtitleSearchState.Results -> ResultsList(state, onPick)
+      when (val current = state) {
+        is SubtitleSearchState.Idle -> BusyRow("Looking for “${current.query}”…")
+        is SubtitleSearchState.Searching -> BusyRow("Looking for “${current.query}”…")
+        is SubtitleSearchState.Downloading -> BusyRow("Downloading ${current.fileName}…")
+        is SubtitleSearchState.Failed -> FailedRow(current.reason) { attempt++ }
+        is SubtitleSearchState.Results -> ResultsList(current, ::pick)
       }
     }
   }
