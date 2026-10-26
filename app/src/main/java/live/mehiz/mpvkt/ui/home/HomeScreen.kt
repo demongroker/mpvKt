@@ -151,7 +151,6 @@ private fun UrlDialog(onDismiss: () -> Unit, onPlay: (String) -> Unit) {
     text = {
       OutlinedTextField(
         state = url,
-        singleLine = true,
         label = { Text(stringResource(R.string.home_url_input_label)) },
         supportingText = {
           Text(if (showError) stringResource(R.string.home_invalid_protocol) else "")
