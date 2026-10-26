@@ -48,14 +48,37 @@ dismiss_system_dialogs() {
   done
 }
 
+# Keep the screen on and wake it: an idle emulator screenshots pure black.
+adb shell svc power stayon true >/dev/null 2>&1 || true
+adb shell input keyevent KEYCODE_WAKEUP >/dev/null 2>&1 || true
+adb shell wm dismiss-keyguard >/dev/null 2>&1 || true
 sleep 20
 dismiss_system_dialogs
-adb shell am force-stop app.vela.player >/dev/null 2>&1 || true
 adb shell am start -n app.vela.player/live.mehiz.mpvkt.MainActivity 2>&1 | tee -a report/launch.txt
 sleep 25
 dismiss_system_dialogs
-sleep 3
-adb exec-out screencap -p > report/home.png || true
+adb shell input keyevent KEYCODE_WAKEUP >/dev/null 2>&1 || true
+
+# A black frame is a failed capture, not a result: wake, wait, try again.
+shoot_home() {
+  for attempt in 1 2 3; do
+    adb exec-out screencap -p > report/home.png 2>/dev/null || true
+    size=$(stat -c %s report/home.png 2>/dev/null || echo 0)
+    echo "screenshot_attempt=${attempt} bytes=${size}" | tee -a report/capture.txt
+    if [ "${size}" -gt 15000 ]; then
+      if [ "${attempt}" -gt 1 ]; then cp report/home.png "report/home-attempt${attempt}.png"; fi
+      return 0
+    fi
+    adb shell input keyevent KEYCODE_WAKEUP >/dev/null 2>&1 || true
+    adb shell wm dismiss-keyguard >/dev/null 2>&1 || true
+    adb shell am start -n app.vela.player/live.mehiz.mpvkt.MainActivity >/dev/null 2>&1 || true
+    sleep 10
+    dismiss_system_dialogs
+  done
+  return 1
+}
+shoot_home || echo "screenshot stayed blank — see report/" | tee -a report/capture.txt
+adb shell dumpsys power 2>/dev/null | grep -E 'mWakefulness=' | head -2 >> report/capture.txt || true
 
 adb shell dumpsys window 2>/dev/null | grep -E 'mCurrentFocus|mFocusedApp' | head -6 | tee report/focus.txt
 if grep -q 'Application Not Responding' report/focus.txt; then
