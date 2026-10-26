@@ -22,9 +22,9 @@ echo "boot_completed=$(adb shell getprop sys.boot_completed | tr -d '\r')" | tee
   echo "kvm_device_now: $(ls -l /dev/kvm 2>&1)"
 } | tee -a report/kvm.txt
 
-adb shell settings put global window_animation_scale 0 >/dev/null 2>&1 || true
-adb shell settings put global transition_animation_scale 0 >/dev/null 2>&1 || true
-adb shell settings put global animator_duration_scale 0 >/dev/null 2>&1 || true
+for setting in window_animation_scale transition_animation_scale animator_duration_scale; do
+  adb shell settings put global "${setting}" 0 >/dev/null 2>&1 || true
+done
 
 adb install -r -g "${APK}" 2>&1 | tee -a report/install.txt
 INSTALL_RC="${PIPESTATUS[0]}"
@@ -34,10 +34,33 @@ if [ "${INSTALL_RC}" -ne 0 ]; then
   exit "${INSTALL_RC}"
 fi
 
+# Unaccelerated emulators throw "System UI isn't responding" over the app. Wait it
+# out, dismiss it, and only then take the picture.
+dismiss_system_dialogs() {
+  adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS >/dev/null 2>&1 || true
+  for _ in 1 2 3; do
+    if adb shell dumpsys window 2>/dev/null | grep -q 'Application Not Responding'; then
+      adb shell input keyevent 4 >/dev/null 2>&1 || true
+      sleep 2
+    else
+      return 0
+    fi
+  done
+}
+
+sleep 20
+dismiss_system_dialogs
+adb shell am force-stop app.vela.player >/dev/null 2>&1 || true
 adb shell am start -n app.vela.player/live.mehiz.mpvkt.MainActivity 2>&1 | tee -a report/launch.txt
-sleep 12
+sleep 25
+dismiss_system_dialogs
+sleep 3
 adb exec-out screencap -p > report/home.png || true
-adb shell dumpsys window 2>/dev/null | grep -E 'mCurrentFocus|mFocusedApp' | head -5 >> report/launch.txt || true
+
+adb shell dumpsys window 2>/dev/null | grep -E 'mCurrentFocus|mFocusedApp' | head -6 | tee report/focus.txt
+if grep -q 'Application Not Responding' report/focus.txt; then
+  echo "note: a system dialog was still in front; home.png may show it" | tee -a report/focus.txt
+fi
 adb shell pm list packages 2>/dev/null | grep -i vela >> report/launch.txt || true
 adb logcat -d -t 500 > report/logcat.txt 2>/dev/null || true
 
