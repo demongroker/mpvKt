@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Headset
 import androidx.compose.material.icons.filled.HeadsetOff
 import androidx.compose.material.icons.filled.KeyboardAlt
@@ -75,6 +76,7 @@ fun MoreSheet(
   onDismissRequest: () -> Unit,
   onEnterFiltersPanel: () -> Unit,
   customButtons: ImmutableList<CustomButtonEntity>,
+  onDeleteFile: () -> Unit = {},
   modifier: Modifier = Modifier,
 ) {
   val advancedPreferences = koinInject<AdvancedPreferences>()
@@ -149,6 +151,23 @@ fun MoreSheet(
             ) {
               Icon(imageVector = Icons.Default.Tune, contentDescription = null)
               Text(text = stringResource(id = R.string.player_sheets_filters_title))
+            }
+          }
+          // Destructive: the confirmation dialogs (ours, then the system's) come next.
+          TextButton(onClick = onDeleteFile) {
+            Row(
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.extraSmall),
+            ) {
+              Icon(
+                imageVector = Icons.Default.DeleteForever,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.error,
+              )
+              Text(
+                text = "Delete file",
+                color = MaterialTheme.colorScheme.error,
+              )
             }
           }
         }

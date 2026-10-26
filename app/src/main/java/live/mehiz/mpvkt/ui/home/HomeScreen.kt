@@ -228,7 +228,7 @@ object HomeScreen : Screen {
     ) { padding ->
       Box(modifier = Modifier.fillMaxSize().padding(padding)) {
         LibraryHome(
-          onPlayVideo = { video -> playLibraryVideo(context, video) },
+          onPlayVideo = { video, queue -> playLibraryVideo(context, video, queue) },
           onOpenUrl = { urlDialog = true },
           onOpenFile = { documentPicker.launch(arrayOf("*/*")) },
           onBrowseFolder = { directoryPicker.launch(null) },

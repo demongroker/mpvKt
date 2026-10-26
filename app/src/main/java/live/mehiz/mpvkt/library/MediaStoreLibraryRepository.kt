@@ -97,6 +97,9 @@ class MediaStoreLibraryRepository(
   /** Resume state for one file, used by the player before it starts. */
   suspend fun resumeFor(fileKey: String) = resumeRepository.get(fileKey)
 
+  /** The row that belonged to a file that no longer exists. */
+  suspend fun clearResume(fileKey: String) = resumeRepository.clear(fileKey)
+
   suspend fun saveResume(
     fileKey: String,
     positionMs: Long,

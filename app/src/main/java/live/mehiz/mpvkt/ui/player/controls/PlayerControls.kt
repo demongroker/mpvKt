@@ -100,6 +100,13 @@ val LocalPlayerButtonsClickEvent = staticCompositionLocalOf { {} }
 fun PlayerControls(
   viewModel: PlayerViewModel,
   onBackPress: () -> Unit,
+  onPlayNext: () -> Unit = {},
+  hasNext: Boolean = false,
+  isShuffled: Boolean = false,
+  onToggleShuffle: () -> Unit = {},
+  rotationMode: RotationMode = RotationMode.Auto,
+  onToggleRotation: () -> Unit = {},
+  onDeleteFile: () -> Unit = {},
   modifier: Modifier = Modifier,
 ) {
   val spacing = MaterialTheme.spacing
@@ -486,6 +493,12 @@ fun PlayerControls(
             onAudioLongClick = { onOpenPanel(Panels.AudioDelay) },
             onMoreClick = { onOpenSheet(Sheets.More) },
             onMoreLongClick = { onOpenPanel(Panels.VideoFilters) },
+            hasNext = hasNext,
+            onNextClick = onPlayNext,
+            isShuffled = isShuffled,
+            onShuffleClick = onToggleShuffle,
+            rotationMode = rotationMode,
+            onRotateClick = onToggleRotation,
           )
         }
         // Bottom right controls
@@ -617,6 +630,7 @@ fun PlayerControls(
       onStartSleepTimer = viewModel::startTimer,
       buttons = customButtons.getButtons().toImmutableList(),
       onOpenPanel = onOpenPanel,
+      onDeleteFile = onDeleteFile,
       onDismissRequest = { onOpenSheet(Sheets.None) },
     )
     val panel by viewModel.panelShown.collectAsState()

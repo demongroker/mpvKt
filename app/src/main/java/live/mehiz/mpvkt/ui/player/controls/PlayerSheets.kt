@@ -62,6 +62,7 @@ fun PlayerSheets(
   buttons: ImmutableList<CustomButtonEntity>,
 
   onOpenPanel: (Panels) -> Unit,
+  onDeleteFile: () -> Unit = {},
   onDismissRequest: () -> Unit,
 ) {
   when (sheetShown) {
@@ -135,6 +136,7 @@ fun PlayerSheets(
         onDismissRequest = onDismissRequest,
         onEnterFiltersPanel = { onOpenPanel(Panels.VideoFilters) },
         customButtons = buttons,
+        onDeleteFile = onDeleteFile,
       )
     }
 

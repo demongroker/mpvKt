@@ -1,11 +1,14 @@
 package live.mehiz.mpvkt.library
 
 import android.Manifest
+import android.provider.MediaStore
+import android.widget.Toast
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -29,6 +32,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -37,6 +41,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -55,6 +60,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,6 +73,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import live.mehiz.mpvkt.preferences.preference.collectAsState
 import live.mehiz.mpvkt.ui.player.PlayerActivity
@@ -82,7 +89,7 @@ private const val FOLDERS_PER_PAGE = 12
 @Suppress("LongMethod")
 @Composable
 fun LibraryHome(
-  onPlayVideo: (LibraryVideo) -> Unit,
+  onPlayVideo: (LibraryVideo, PlaybackQueue?) -> Unit,
   onOpenUrl: () -> Unit,
   onOpenFile: () -> Unit,
   onBrowseFolder: () -> Unit,
@@ -116,10 +123,31 @@ fun LibraryHome(
   var menuOpen by remember { mutableStateOf(false) }
   var expanded by remember { mutableStateOf(setOf<String>()) }
   var loadedFolders by remember { mutableIntStateOf(FOLDERS_PER_PAGE) }
+  val scope = rememberCoroutineScope()
+  var pendingDelete by remember { mutableStateOf<LibraryVideo?>(null) }
+  var confirmDelete by remember { mutableStateOf(false) }
+
+  // Deleting is the system's job: MediaStore shows its own dialog, and only a
+  // RESULT_OK from it may touch the library list or the resume row.
+  val deleteLauncher = rememberLauncherForActivityResult(
+    ActivityResultContracts.StartIntentSenderForResult(),
+  ) { result ->
+    val target = pendingDelete
+    pendingDelete = null
+    if (target == null) return@rememberLauncherForActivityResult
+    if (result.resultCode == android.app.Activity.RESULT_OK) {
+      scope.launch {
+        videos = LibraryDeletion.applySuccess(videos, target.fileKey) { key -> repository.clearResume(key) }
+      }
+    } else {
+      videos = LibraryDeletion.applyCancel(videos, target.fileKey)
+    }
+  }
 
   val sortName by preferences.sortOrder.collectAsState()
   val pinnedFolders by preferences.pinnedFolders.collectAsState()
   val hiddenFolders by preferences.hiddenFolders.collectAsState()
+  val shuffledFolders by preferences.shuffledFolders.collectAsState()
   val sort = LibrarySort.fromName(sortName)
 
   LaunchedEffect(granted) {
@@ -141,6 +169,14 @@ fun LibraryHome(
     )
   }
   val shownFolders = folders.take(loadedFolders)
+
+  /** The queue for a folder: its files in the library's own order, unless shuffled. */
+  fun queueForFolder(folder: LibraryFolder): PlaybackQueue = QueueLogic.queueFor(
+    videos = folder.videos,
+    folder = folder.name,
+    shuffled = folder.name in shuffledFolders,
+    seed = preferences.shuffleSeed(folder.name).get(),
+  )
 
   if (!granted) {
     PermissionPrompt(onRequest = { permissionLauncher.launch(permission) }, modifier = modifier)
@@ -190,7 +226,13 @@ fun LibraryHome(
         }
         if (folder.name in expanded) {
           items(folder.videos, key = { it.fileKey }) { video ->
-            VideoCard(video = video, context = context, thumbnails = thumbnails) { onPlayVideo(video) }
+            VideoCard(
+              video = video,
+              context = context,
+              thumbnails = thumbnails,
+              onPlay = { onPlayVideo(video, queueForFolder(folder)) },
+              onDelete = { pendingDelete = video },
+            )
           }
         }
       }
@@ -239,6 +281,50 @@ fun LibraryHome(
       }
     }
   }
+
+  pendingDelete?.let { target ->
+    DeleteConfirmDialog(
+      video = target,
+      onConfirm = { confirmDelete = true },
+      onDismiss = { pendingDelete = null },
+    )
+  }
+
+  // Our own confirmation runs first; the system dialog only appears afterwards.
+  LaunchedEffect(confirmDelete, pendingDelete) {
+    val target = pendingDelete ?: return@LaunchedEffect
+    if (!confirmDelete) return@LaunchedEffect
+    confirmDelete = false
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+      Toast.makeText(context, "Deleting needs Android 11 or newer", Toast.LENGTH_LONG).show()
+      pendingDelete = null
+      return@LaunchedEffect
+    }
+    val launched = runCatching {
+      val pending = MediaStore.createDeleteRequest(context.contentResolver, listOf(target.uri.toUri()))
+      deleteLauncher.launch(IntentSenderRequest.Builder(pending.intentSender).build())
+    }.isSuccess
+    if (!launched) {
+      Toast.makeText(context, "Couldn't ask the system to delete that file", Toast.LENGTH_LONG).show()
+      pendingDelete = null
+    }
+  }
+}
+
+/** The in-app confirmation that sits in front of the system's own dialog. */
+@Composable
+private fun DeleteConfirmDialog(video: LibraryVideo, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+  AlertDialog(
+    onDismissRequest = onDismiss,
+    title = { Text("Delete permanently?") },
+    text = { Text("Delete “${video.name}”? This removes the file from your phone. It cannot be undone.") },
+    confirmButton = {
+      TextButton(onClick = onConfirm) {
+        Text("Delete", color = MaterialTheme.colorScheme.error)
+      }
+    },
+    dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+  )
 }
 
 @Composable
@@ -359,14 +445,26 @@ private fun VideoCard(
   context: Context,
   thumbnails: ThumbnailCache,
   onPlay: () -> Unit,
+  onDelete: () -> Unit,
 ) {
   val thumb by rememberThumb(video, context, thumbnails)
+  var menu by remember { mutableStateOf(false) }
   Column(
     modifier = Modifier
       .clip(RoundedCornerShape(12.dp))
       .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-      .clickable(onClick = onPlay),
+      .combinedClickable(onClick = onPlay, onLongClick = { menu = true }),
   ) {
+    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+      DropdownMenuItem(
+        text = { Text("Delete…") },
+        leadingIcon = { Icon(Icons.Default.DeleteForever, null) },
+        onClick = {
+          menu = false
+          onDelete()
+        },
+      )
+    }
     Box(
       modifier = Modifier.fillMaxWidth().aspectRatio(VIDEO_ASPECT),
       contentAlignment = Alignment.Center,
@@ -419,11 +517,19 @@ private fun formatDuration(ms: Long): String {
   return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
 }
 
-/** Starts playback with the identity the resume table expects. */
-fun playLibraryVideo(context: Context, video: LibraryVideo) {
+/**
+ * Starts playback with the identity the resume table expects, and hands the player
+ * the folder queue so "next", shuffle and delete can work from inside playback.
+ */
+fun playLibraryVideo(
+  context: Context,
+  video: LibraryVideo,
+  queue: PlaybackQueue? = null,
+) {
   val intent = Intent(Intent.ACTION_VIEW, video.uri.toUri())
   intent.setClass(context, PlayerActivity::class.java)
   intent.putExtra(PlayerActivity.EXTRA_MEDIA_ID, video.mediaId)
   intent.putExtra(PlayerActivity.EXTRA_MEDIA_PATH, video.path.ifBlank { video.uri })
+  queue?.let { intent.putExtra(PlayerActivity.EXTRA_QUEUE, it.toJson()) }
   context.startActivity(intent)
 }

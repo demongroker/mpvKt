@@ -13,4 +13,12 @@ class LibraryPreferences(preferenceStore: PreferenceStore) {
 
   /** How many media rows are loaded per page while scrolling. */
   val pageSize = preferenceStore.getInt("library_page_size", 120)
+
+  /** Folders whose queue plays shuffled. Shuffle never changes the library's sort. */
+  val shuffledFolders = preferenceStore.getStringSet("library_shuffled_folders")
+
+  private val store = preferenceStore
+
+  /** Seed per folder, so a shuffled queue keeps its order between sessions. */
+  fun shuffleSeed(folder: String) = store.getLong("library_shuffle_seed_${folder.hashCode()}")
 }

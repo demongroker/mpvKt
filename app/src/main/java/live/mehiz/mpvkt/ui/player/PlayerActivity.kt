@@ -1,6 +1,7 @@
 package live.mehiz.mpvkt.ui.player
 
 import android.annotation.SuppressLint
+import android.app.AlertDialog
 import android.app.PictureInPictureParams
 import android.content.BroadcastReceiver
 import android.content.ComponentName
@@ -9,6 +10,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.ServiceConnection
 import android.content.pm.ActivityInfo
+import android.graphics.Color
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.media.AudioManager
@@ -21,6 +23,7 @@ import android.os.IBinder
 import android.provider.MediaStore
 import android.util.Log
 import android.util.Rational
+import android.widget.Toast
 import android.view.KeyEvent
 import android.view.View
 import android.view.WindowManager
@@ -28,12 +31,15 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
-import androidx.compose.ui.Modifier
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.graphics.toAndroidRect
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.core.net.toUri
 import androidx.core.text.isDigitsOnly
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -57,7 +63,14 @@ import live.mehiz.mpvkt.database.entities.ResumeStateEntity
 import live.mehiz.mpvkt.databinding.PlayerLayoutBinding
 import live.mehiz.mpvkt.domain.playbackstate.repository.PlaybackStateRepository
 import live.mehiz.mpvkt.domain.resume.repository.ResumeRepository
+import live.mehiz.mpvkt.library.LibraryDeletion
+import live.mehiz.mpvkt.preferences.preference.collectAsState
 import live.mehiz.mpvkt.library.LibraryLogic
+import live.mehiz.mpvkt.library.LibraryPreferences
+import live.mehiz.mpvkt.library.PlaybackQueue
+import live.mehiz.mpvkt.library.QueueItem
+import live.mehiz.mpvkt.library.QueueLogic
+
 import live.mehiz.mpvkt.preferences.AdvancedPreferences
 import live.mehiz.mpvkt.preferences.AudioPreferences
 import live.mehiz.mpvkt.preferences.GesturePreferences
@@ -76,7 +89,18 @@ class PlayerActivity : AppCompatActivity() {
   private val playerObserver by lazy { PlayerObserver(this) }
   private val playbackStateRepository: PlaybackStateRepository by inject()
   private val resumeRepository: ResumeRepository by inject()
+  private val libraryPreferences: LibraryPreferences by inject()
   private var resumeFileKey: String = ""
+
+  /** The folder queue, handed over by the library so next/shuffle/delete work here. */
+  private var queue: PlaybackQueue? = null
+
+  /** MediaStore shows its own confirmation; only RESULT_OK may delete anything. */
+  private val deleteLauncher = registerForActivityResult(
+    ActivityResultContracts.StartIntentSenderForResult(),
+  ) { result ->
+    if (result.resultCode == RESULT_OK) onFileDeleted()
+  }
   val player by lazy { binding.player }
   val windowInsetsController by lazy { WindowCompat.getInsetsController(window, window.decorView) }
   val audioManager by lazy { getSystemService(AUDIO_SERVICE) as AudioManager }
@@ -124,15 +148,24 @@ class PlayerActivity : AppCompatActivity() {
     setupAudio()
     setupMediaSession()
     setupResumeKey(intent)
+    setupQueue(intent)
     startResumeTicker()
     getPlayableUri(intent)?.let(player::playFile)
     setOrientation()
 
     binding.controls.setContent {
       MpvKtTheme {
+        val rotationMode by playerPreferences.rotationMode.collectAsState()
         PlayerControls(
           viewModel = viewModel,
           onBackPress = ::finish,
+          onPlayNext = ::playNextInQueue,
+          hasNext = nextQueueItem() != null,
+          isShuffled = queue?.shuffled == true,
+          onToggleShuffle = ::toggleShuffle,
+          rotationMode = rotationMode,
+          onToggleRotation = ::toggleRotation,
+          onDeleteFile = ::confirmDeleteCurrentFile,
           modifier = Modifier.onGloballyPositioned {
             pipRect = it.boundsInWindow().toAndroidRect()
           },
@@ -577,8 +610,119 @@ class PlayerActivity : AppCompatActivity() {
         viewModel.changeVideoAspect(playerPreferences.videoAspect.get())
       }
 
+      MPVLib.mpvEventId.MPV_EVENT_END_FILE -> {
+        // Auto-play next only when the file really played to its end.
+        val eof = MPVLib.getPropertyBoolean("eof-reached") == true
+        if (eof && playerPreferences.autoPlayNext.get()) playNextInQueue()
+      }
+
       MPVLib.mpvEventId.MPV_EVENT_PLAYBACK_RESTART -> player.isExiting = false
     }
+  }
+
+  private fun setupQueue(intent: Intent) {
+    queue = PlaybackQueue.fromJson(intent.getStringExtra(EXTRA_QUEUE))
+      ?: queue?.copy()
+  }
+
+  private fun nextQueueItem(): QueueItem? {
+    val current = queue ?: return null
+    return QueueLogic.next(current, resumeFileKey, playerPreferences.loopFolder.get())
+  }
+
+  /** Starts the next file of the folder, carrying the queue along. */
+  private fun playNextInQueue() {
+    val item = nextQueueItem() ?: return
+    val nextIntent = Intent(this, PlayerActivity::class.java).apply {
+      data = item.uri.toUri()
+      putExtra(EXTRA_MEDIA_ID, item.mediaId)
+      putExtra(EXTRA_MEDIA_PATH, item.path.ifBlank { item.uri })
+      putExtra(EXTRA_QUEUE, queue?.toJson())
+    }
+    player.isExiting = true
+    startActivity(nextIntent)
+    finish()
+  }
+
+  /** Shuffle applies to this folder's queue only; the library keeps its own sort. */
+  private fun toggleShuffle() {
+    val current = queue ?: return
+    val folder = current.folder
+    val shuffled = !current.shuffled
+    val seeded = libraryPreferences.shuffleSeed(folder)
+    val seed = if (shuffled) {
+      val fresh = System.currentTimeMillis()
+      seeded.set(fresh)
+      fresh
+    } else {
+      seeded.get()
+    }
+    queue = current.copy(shuffled = shuffled, seed = seed)
+    val folders = libraryPreferences.shuffledFolders.get()
+    libraryPreferences.shuffledFolders.set(if (shuffled) folders + folder else folders - folder)
+  }
+
+  /** Cycles auto (sensor) rotation and locked-to-current, and remembers the choice. */
+  private fun toggleRotation() {
+    val mode = playerPreferences.rotationMode.get()
+    if (mode == RotationMode.Auto) {
+      val locked = if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+        ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+      } else {
+        ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+      }
+      playerPreferences.lockedOrientation.set(locked)
+      playerPreferences.rotationMode.set(RotationMode.Locked)
+    } else {
+      playerPreferences.rotationMode.set(RotationMode.Auto)
+    }
+    setOrientation()
+  }
+
+  /** Only files that came from MediaStore can be deleted from here. */
+  private fun deletableUri(): Uri? {
+    val data = intent.data ?: return null
+    val authority = data.authority.orEmpty()
+    return if (data.scheme == "content" && authority.startsWith("media")) data else null
+  }
+
+  private fun confirmDeleteCurrentFile() {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+      Toast.makeText(this, "Deleting needs Android 11 or newer", Toast.LENGTH_LONG).show()
+      return
+    }
+    val uri = deletableUri()
+    if (uri == null) {
+      Toast.makeText(this, "Only files from your library can be deleted here", Toast.LENGTH_LONG).show()
+      return
+    }
+    val name = fileName.ifBlank { MPVLib.getPropertyString("filename").orEmpty() }
+    val dialog = AlertDialog.Builder(this)
+      .setTitle("Delete permanently?")
+      .setMessage("Delete “$name”? This removes the file from your phone. It cannot be undone.")
+      .setNegativeButton(android.R.string.cancel, null)
+      .setPositiveButton("Delete") { _, _ -> requestSystemDelete(uri) }
+      .create()
+    dialog.setOnShowListener {
+      dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(Color.RED)
+    }
+    dialog.show()
+  }
+
+  private fun requestSystemDelete(uri: Uri) {
+    val pending = MediaStore.createDeleteRequest(contentResolver, listOf(uri))
+    deleteLauncher.launch(IntentSenderRequest.Builder(pending.intentSender).build())
+  }
+
+  /** The system confirmed the delete: drop the resume row and the queue entry. */
+  private fun onFileDeleted() {
+    val key = resumeFileKey
+    queue = LibraryDeletion.pruneQueue(queue, key)
+    if (key.isNotBlank()) {
+      lifecycleScope.launch(Dispatchers.IO) { resumeRepository.clear(key) }
+    }
+    Toast.makeText(this, "File deleted", Toast.LENGTH_SHORT).show()
+    finish()
   }
 
   /**
@@ -763,6 +907,13 @@ class PlayerActivity : AppCompatActivity() {
   }
 
   private fun setOrientation() {
+    // A locked rotation wins over the Orientation preference until it is toggled back.
+    val mode = playerPreferences.rotationMode.get()
+    val locked = playerPreferences.lockedOrientation.get()
+    if (mode == RotationMode.Locked && locked != 0) {
+      requestedOrientation = locked
+      return
+    }
     requestedOrientation = when (playerPreferences.orientation.get()) {
       PlayerOrientation.Free -> ActivityInfo.SCREEN_ORIENTATION_SENSOR
       PlayerOrientation.Video -> if ((player.getVideoOutAspect() ?: 0.0) > 1.0) {
@@ -921,6 +1072,9 @@ class PlayerActivity : AppCompatActivity() {
     /** MediaStore id of the file being played, so resume can key on it. */
     const val EXTRA_MEDIA_ID = "live.mehiz.mpvkt.ui.player.media_id"
     const val EXTRA_MEDIA_PATH = "live.mehiz.mpvkt.ui.player.media_path"
+
+    /** JSON of the folder queue, so next/shuffle/delete work inside playback. */
+    const val EXTRA_QUEUE = "live.mehiz.mpvkt.ui.player.queue"
 
     private const val RESUME_TICK_MS = 5_000L
   }

@@ -5,11 +5,17 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.ScreenLockRotation
+import androidx.compose.material.icons.filled.ScreenRotation
+import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.filled.ShuffleOn
+import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import live.mehiz.mpvkt.ui.player.Decoder
+import live.mehiz.mpvkt.ui.player.RotationMode
 import live.mehiz.mpvkt.ui.player.controls.components.ControlsButton
 
 @Composable
@@ -30,6 +36,13 @@ fun TopRightPlayerControls(
   // more
   onMoreClick: () -> Unit,
   onMoreLongClick: () -> Unit,
+  // queue and rotation
+  hasNext: Boolean = false,
+  onNextClick: () -> Unit = {},
+  isShuffled: Boolean = false,
+  onShuffleClick: () -> Unit = {},
+  rotationMode: RotationMode = RotationMode.Auto,
+  onRotateClick: () -> Unit = {},
 
   modifier: Modifier = Modifier
 ) {
@@ -57,6 +70,21 @@ fun TopRightPlayerControls(
       Icons.Default.Audiotrack,
       onClick = onAudioClick,
       onLongClick = onAudioLongClick,
+    )
+    if (hasNext) {
+      ControlsButton(
+        Icons.Default.SkipNext,
+        onClick = onNextClick,
+      )
+    }
+    ControlsButton(
+      if (isShuffled) Icons.Default.ShuffleOn else Icons.Default.Shuffle,
+      onClick = onShuffleClick,
+    )
+    // The icon is the state: screen-rotation means auto, the lock means held.
+    ControlsButton(
+      if (rotationMode == RotationMode.Locked) Icons.Default.ScreenLockRotation else Icons.Default.ScreenRotation,
+      onClick = onRotateClick,
     )
     ControlsButton(
       Icons.Default.MoreVert,

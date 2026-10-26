@@ -3,12 +3,25 @@ package live.mehiz.mpvkt.preferences
 import live.mehiz.mpvkt.preferences.preference.PreferenceStore
 import live.mehiz.mpvkt.preferences.preference.getEnum
 import live.mehiz.mpvkt.ui.player.PlayerOrientation
+import live.mehiz.mpvkt.ui.player.RotationMode
 import live.mehiz.mpvkt.ui.player.VideoAspect
 
 class PlayerPreferences(
   preferenceStore: PreferenceStore
 ) {
   val orientation = preferenceStore.getEnum("player_orientation", PlayerOrientation.SensorLandscape)
+
+  /** Auto-rotate toggle state: [RotationMode.Auto] follows the sensors. */
+  val rotationMode = preferenceStore.getEnum("player_rotation_mode", RotationMode.Auto)
+
+  /** Orientation to hold while [rotationMode] is Locked. */
+  val lockedOrientation = preferenceStore.getInt("player_locked_orientation", 0)
+
+  /** Play the next file in the folder when one ends. */
+  val autoPlayNext = preferenceStore.getBoolean("player_auto_play_next", true)
+
+  /** Keep going after the last file in the folder. */
+  val loopFolder = preferenceStore.getBoolean("player_loop_folder", false)
   val invertDuration = preferenceStore.getBoolean("invert_duration")
   val drawOverDisplayCutout = preferenceStore.getBoolean("draw_over_cutout", true)
 

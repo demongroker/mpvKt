@@ -6,6 +6,25 @@ Newest first. Each entry describes one reviewable step.
 
 Nothing yet.
 
+### 0.1.13 — playback controls
+- **feat(delete): delete a file for good, from the library or from playback.** The
+  in-app confirmation ("Delete <name> permanently?", red button) comes first, then
+  `MediaStore.createDeleteRequest` makes the system ask too. Only a RESULT_OK from
+  the system dialog removes the file's resume row, its library row and its queue
+  entry; cancelling either dialog changes nothing.
+- **feat(player): auto-play next.** When a file plays to its end the next file in
+  the folder starts, in the folder's current sort order — or the shuffled order
+  when shuffle is on. Toggle in Preferences → Player (default on), a Next button in
+  the player, and playback stops at the end of the folder unless "loop folder" is
+  on.
+- **feat(player): shuffle the queue.** Shuffle reorders the folder being played
+  only — the library's sort is never touched — and the state is remembered per
+  folder with a seed, so the order is stable between sessions.
+- **feat(player): rotate button.** Cycles auto (sensor-driven, follows the device)
+  and locked to the current orientation; the icon shows which is active and the
+  choice persists. The existing Orientation preference keeps working and its
+  default is unchanged.
+
 ## Released
 
 ### 0.1.12 — the library becomes the home screen
