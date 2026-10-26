@@ -9,6 +9,8 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import live.mehiz.mpvkt.database.entities.CustomButtonEntity
 import live.mehiz.mpvkt.subtitles.SubtitleHit
+import live.mehiz.mpvkt.subtitles.SubtitleSaveResult
+import live.mehiz.mpvkt.subtitles.SubtitleSearchResult
 import live.mehiz.mpvkt.ui.player.Decoder
 import live.mehiz.mpvkt.ui.player.Panels
 import live.mehiz.mpvkt.ui.player.Sheets
@@ -31,8 +33,8 @@ fun PlayerSheets(
   onSelectSubtitle: (Int) -> Unit,
   onOpenSubtitleSearch: () -> Unit,
   subtitleQuery: String,
-  onFindSubtitles: suspend (String) -> List<SubtitleHit>,
-  onSaveSubtitle: suspend (SubtitleHit, String) -> java.io.File?,
+  onFindSubtitles: suspend (String) -> SubtitleSearchResult,
+  onSaveSubtitle: suspend (SubtitleHit, String) -> SubtitleSaveResult,
   onSubtitleLoaded: (java.io.File) -> Unit,
   // audio sheet
   audioTracks: ImmutableList<TrackNode>,

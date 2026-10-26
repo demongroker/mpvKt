@@ -29,21 +29,32 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import live.mehiz.mpvkt.presentation.components.PlayerSheet
+import live.mehiz.mpvkt.subtitles.ProviderError
 import live.mehiz.mpvkt.subtitles.SubtitleHit
 import live.mehiz.mpvkt.subtitles.SubtitleLogic
+import live.mehiz.mpvkt.subtitles.SubtitleSaveResult
+import live.mehiz.mpvkt.subtitles.SubtitleSearchResult
 import live.mehiz.mpvkt.subtitles.SubtitleSearchState
 import java.io.File
 import java.util.Locale
 
+/** One sentence per shared error, so both providers read the same in the UI. */
+internal fun providerErrorText(error: ProviderError): String = when (error) {
+  ProviderError.KeyMissing ->
+    "This provider needs an API key — add it in Preferences → Subtitles, or switch back to the keyless provider."
+  ProviderError.RateLimited -> "The subtitle provider asked us to slow down. Try again in a while."
+  ProviderError.ProviderUnavailable -> "Couldn't reach the subtitle provider. Check your connection and try again."
+}
+
 /**
- * "Download subtitles" sheet: searches OpenSubtitles with the name of the file
- * that is playing and loads the picked result as the selected track.
+ * "Download subtitles" sheet: searches the configured provider with the name of
+ * the file that is playing and loads the picked result as the selected track.
  */
 @Composable
 fun SubtitleSearchSheet(
   query: String,
-  onFind: suspend (String) -> List<SubtitleHit>,
-  onSave: suspend (SubtitleHit, String) -> File?,
+  onFind: suspend (String) -> SubtitleSearchResult,
+  onSave: suspend (SubtitleHit, String) -> SubtitleSaveResult,
   onLoaded: (File) -> Unit,
   onDismissRequest: () -> Unit,
   modifier: Modifier = Modifier,
@@ -54,13 +65,21 @@ fun SubtitleSearchSheet(
 
   LaunchedEffect(query, attempt) {
     if (query.isBlank()) {
-      state = SubtitleSearchState.Failed(query, "Vela doesn't know this file's name — add a subtitle file instead")
+      state = SubtitleSearchState.Failed(query, ProviderError.ProviderUnavailable)
       return@LaunchedEffect
     }
     state = SubtitleSearchState.Searching(query)
-    val hits = runCatching { onFind(query) }.getOrDefault(emptyList())
-    state = if (hits.isEmpty()) {
-      SubtitleSearchState.Failed(query, "No subtitles found for “$query”")
+    val hits = when (val result = runCatching { onFind(query) }.getOrNull()) {
+      null -> null
+      is SubtitleSearchResult.Failure -> {
+        state = SubtitleSearchState.Failed(query, result.error)
+        return@LaunchedEffect
+      }
+
+      is SubtitleSearchResult.Found -> result.hits
+    }
+    state = if (hits.isNullOrEmpty()) {
+      SubtitleSearchState.Failed(query, ProviderError.ProviderUnavailable)
     } else {
       SubtitleSearchState.Results(query, hits)
     }
@@ -69,12 +88,14 @@ fun SubtitleSearchSheet(
   fun pick(hit: SubtitleHit) {
     scope.launch {
       state = SubtitleSearchState.Downloading(hit.fileName)
-      val file = runCatching { onSave(hit, query) }.getOrNull()
-      if (file == null) {
-        state = SubtitleSearchState.Failed(query, "That subtitle couldn't be downloaded — try another")
-      } else {
-        onLoaded(file)
-        onDismissRequest()
+      when (val saved = runCatching { onSave(hit, query) }.getOrNull()) {
+        is SubtitleSaveResult.Saved -> {
+          onLoaded(saved.file)
+          onDismissRequest()
+        }
+
+        is SubtitleSaveResult.Failure -> state = SubtitleSearchState.Failed(query, saved.error)
+        null -> state = SubtitleSearchState.Failed(query, ProviderError.ProviderUnavailable)
       }
     }
   }
@@ -90,7 +111,7 @@ fun SubtitleSearchSheet(
         is SubtitleSearchState.Idle -> BusyRow("Looking for “${current.query}”…")
         is SubtitleSearchState.Searching -> BusyRow("Looking for “${current.query}”…")
         is SubtitleSearchState.Downloading -> BusyRow("Downloading ${current.fileName}…")
-        is SubtitleSearchState.Failed -> FailedRow(current.reason) { attempt++ }
+        is SubtitleSearchState.Failed -> FailedRow(providerErrorText(current.error)) { attempt++ }
         is SubtitleSearchState.Results -> ResultsList(current, ::pick)
       }
     }
@@ -146,8 +167,19 @@ private fun SubtitleHitRow(hit: SubtitleHit, onClick: () -> Unit) {
       overflow = TextOverflow.Ellipsis,
     )
     Text(
-      text = "${SubtitleLogic.languageLabel(hit.language)} · " +
-        "${String.format(Locale.US, "%,d", hit.downloads)} downloads · ${hit.format}",
+      text = buildString {
+        append(SubtitleLogic.languageLabel(hit.language))
+        append(" · ")
+        append(String.format(Locale.US, "%,d", hit.downloads))
+        append(" downloads")
+        if (hit.rating > 0.0) {
+          append(" · ")
+          append(String.format(Locale.US, "%.1f", hit.rating))
+          append("★")
+        }
+        append(" · ")
+        append(hit.format)
+      },
       style = MaterialTheme.typography.bodySmall,
       color = MaterialTheme.colorScheme.onSurfaceVariant,
     )

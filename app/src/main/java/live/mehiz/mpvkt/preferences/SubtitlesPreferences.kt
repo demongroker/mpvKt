@@ -16,6 +16,12 @@ class SubtitlesPreferences(preferenceStore: PreferenceStore) {
   val autoLoadExternal = preferenceStore.getBoolean("sub_autoload", true)
   val preferredLanguages = preferenceStore.getString("sub_preferred_languages")
 
+  /** false = keyless OpenSubtitles endpoint (default), true = OpenSubtitles.com with an API key. */
+  val useOpenSubtitlesCom = preferenceStore.getBoolean("sub_provider_opensubtitles_com", false)
+
+  /** Language asked of the subtitle provider when downloading. */
+  val downloadLanguage = preferenceStore.getString("sub_download_language", "eng")
+
   val fontsFolder = preferenceStore.getString("sub_fonts_folder")
   val font = preferenceStore.getString("sub_font", "Sans Serif")
   val fontSize = preferenceStore.getInt("sub_font_size", 55)

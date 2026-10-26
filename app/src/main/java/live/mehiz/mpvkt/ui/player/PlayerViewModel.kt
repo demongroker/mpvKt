@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import live.mehiz.mpvkt.R
 import live.mehiz.mpvkt.database.MpvKtDatabase
@@ -36,8 +37,17 @@ import live.mehiz.mpvkt.database.entities.CustomButtonEntity
 import live.mehiz.mpvkt.preferences.AudioPreferences
 import live.mehiz.mpvkt.preferences.GesturePreferences
 import live.mehiz.mpvkt.preferences.PlayerPreferences
-import live.mehiz.mpvkt.subtitles.SubtitleDownloader
+import live.mehiz.mpvkt.preferences.SubtitlesPreferences
+import live.mehiz.mpvkt.security.SecureSecrets
+import live.mehiz.mpvkt.subtitles.LegacyOpenSubtitlesProvider
+import live.mehiz.mpvkt.subtitles.OpenSubtitlesComProvider
+import live.mehiz.mpvkt.subtitles.ProviderError
+import live.mehiz.mpvkt.subtitles.SubtitleFileResult
 import live.mehiz.mpvkt.subtitles.SubtitleHit
+import live.mehiz.mpvkt.subtitles.SubtitleProvider
+import live.mehiz.mpvkt.subtitles.SubtitleSaveResult
+import live.mehiz.mpvkt.subtitles.SubtitleSearchResult
+import live.mehiz.mpvkt.subtitles.SubtitleStore
 import live.mehiz.mpvkt.ui.custombuttons.CustomButtonsUiState
 import live.mehiz.mpvkt.ui.custombuttons.getButtons
 import org.koin.java.KoinJavaComponent.inject
@@ -60,6 +70,7 @@ class PlayerViewModel(
   private val playerPreferences: PlayerPreferences by inject(PlayerPreferences::class.java)
   private val gesturePreferences: GesturePreferences by inject(GesturePreferences::class.java)
   private val audioPreferences: AudioPreferences by inject(AudioPreferences::class.java)
+  private val subtitlesPreferences: SubtitlesPreferences by inject(SubtitlesPreferences::class.java)
   private val mpvKtDatabase: MpvKtDatabase by inject(MpvKtDatabase::class.java)
   private val json: Json by inject(Json::class.java)
 
@@ -180,10 +191,35 @@ class PlayerViewModel(
     MPVLib.getPropertyString("filename")?.takeIf { it.isNotBlank() }
       ?: MPVLib.getPropertyString("media-title").orEmpty()
 
-  suspend fun findSubtitles(query: String): List<SubtitleHit> = SubtitleDownloader.search(query)
+  /** Default is the keyless endpoint; OpenSubtitles.com is used when the owner turns it on. */
+  private fun subtitleProvider(): SubtitleProvider =
+    if (subtitlesPreferences.useOpenSubtitlesCom.get()) {
+      OpenSubtitlesComProvider(
+        apiKey = SecureSecrets.get(activity, SecureSecrets.OS_COM_API_KEY),
+        username = SecureSecrets.get(activity, SecureSecrets.OS_COM_USERNAME),
+        password = SecureSecrets.get(activity, SecureSecrets.OS_COM_PASSWORD),
+      )
+    } else {
+      LegacyOpenSubtitlesProvider()
+    }
 
-  suspend fun saveSubtitle(hit: SubtitleHit, query: String): File? =
-    SubtitleDownloader.download(activity, hit, query)
+  suspend fun findSubtitles(query: String): SubtitleSearchResult =
+    subtitleProvider().search(query, subtitlesPreferences.downloadLanguage.get())
+
+  suspend fun saveSubtitle(hit: SubtitleHit, query: String): SubtitleSaveResult =
+    when (val fetched = subtitleProvider().download(hit)) {
+      is SubtitleFileResult.Failure -> SubtitleSaveResult.Failure(fetched.error)
+      is SubtitleFileResult.Text -> {
+        val file = withContext(Dispatchers.IO) {
+          SubtitleStore.save(activity, fetched.body, query, hit.language)
+        }
+        if (file == null) {
+          SubtitleSaveResult.Failure(ProviderError.ProviderUnavailable)
+        } else {
+          SubtitleSaveResult.Saved(file)
+        }
+      }
+    }
 
   /** Loads a downloaded subtitle as the selected track. */
   fun loadSubtitle(file: File) = MPVLib.command("sub-add", file.absolutePath, "select")

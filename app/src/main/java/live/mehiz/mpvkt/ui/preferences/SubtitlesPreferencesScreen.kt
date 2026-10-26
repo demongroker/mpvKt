@@ -116,6 +116,7 @@ object SubtitlesPreferencesScreen : Screen {
               )
             },
           )
+          SubtitleProviderSettings(preferences)
         }
       }
     }
