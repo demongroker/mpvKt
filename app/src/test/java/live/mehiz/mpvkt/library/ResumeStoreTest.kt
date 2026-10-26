@@ -59,7 +59,7 @@ class ResumeStoreTest {
     val first = state(positionMs = 10_000)
     repository.save(first)
     repository.save(first.copy(positionMs = 55_000, lastPlayedAt = 1_800_000_500_000))
-    assertEquals(55_000, repository.get(first.fileKey)?.positionMs)
+    assertEquals(55_000L, repository.get(first.fileKey)?.positionMs)
     assertEquals(1, repository.getAll().size)
   }
 

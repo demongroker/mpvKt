@@ -25,9 +25,10 @@ object LibraryLogic {
   fun folderName(rawBucket: String?, path: String): String {
     val bucket = rawBucket?.trim().orEmpty()
     if (bucket.isNotEmpty()) return bucket
-    val trimmed = path.trim().trimEnd('/')
-    val lastSeparator = trimmed.lastIndexOf('/')
-    return if (lastSeparator > 0) trimmed.substring(lastSeparator + 1) else OTHER_FOLDER
+    // No bucket from MediaStore: the folder is the file's parent directory, not the
+    // file name itself.
+    val segments = path.trim().trimEnd('/').split('/').filter { it.isNotBlank() }
+    return segments.getOrNull(segments.size - 2) ?: OTHER_FOLDER
   }
 
   /** 95 % watched counts as finished; a finished file is not resumed. */
