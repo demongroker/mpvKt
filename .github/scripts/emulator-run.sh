@@ -34,12 +34,20 @@ if [ "${INSTALL_RC}" -ne 0 ]; then
   exit "${INSTALL_RC}"
 fi
 
-# Unaccelerated emulators throw "System UI isn't responding" over the app. Wait it
-# out, dismiss it, and only then take the picture.
+# Unaccelerated emulators throw "System UI isn't responding" over the app. Only
+# dismiss it when the dialog is actually in front: a background app's ANR must not
+# cost us a BACK press, which would close the app we are trying to screenshot.
+anr_in_front() {
+  adb shell dumpsys window 2>/dev/null | grep 'mCurrentFocus' | grep -q 'Application Not Responding'
+}
+
+app_in_front() {
+  adb shell dumpsys window 2>/dev/null | grep 'mCurrentFocus' | grep -q 'app.vela.player'
+}
+
 dismiss_system_dialogs() {
-  adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS >/dev/null 2>&1 || true
   for _ in 1 2 3; do
-    if adb shell dumpsys window 2>/dev/null | grep -q 'Application Not Responding'; then
+    if anr_in_front; then
       adb shell input keyevent 4 >/dev/null 2>&1 || true
       sleep 2
     else
@@ -54,7 +62,7 @@ adb shell input keyevent KEYCODE_WAKEUP >/dev/null 2>&1 || true
 adb shell wm dismiss-keyguard >/dev/null 2>&1 || true
 sleep 20
 dismiss_system_dialogs
-adb shell am start -n app.vela.player/live.mehiz.mpvkt.MainActivity 2>&1 | tee -a report/launch.txt
+adb shell am start -W -n app.vela.player/live.mehiz.mpvkt.MainActivity 2>&1 | tee -a report/launch.txt
 sleep 25
 dismiss_system_dialogs
 adb shell input keyevent KEYCODE_WAKEUP >/dev/null 2>&1 || true
@@ -71,7 +79,7 @@ shoot_home() {
     fi
     adb shell input keyevent KEYCODE_WAKEUP >/dev/null 2>&1 || true
     adb shell wm dismiss-keyguard >/dev/null 2>&1 || true
-    adb shell am start -n app.vela.player/live.mehiz.mpvkt.MainActivity >/dev/null 2>&1 || true
+    app_in_front || adb shell am start -n app.vela.player/live.mehiz.mpvkt.MainActivity >/dev/null 2>&1 || true
     sleep 10
     dismiss_system_dialogs
   done
@@ -79,6 +87,11 @@ shoot_home() {
 }
 shoot_home || echo "screenshot stayed blank — see report/" | tee -a report/capture.txt
 adb shell dumpsys power 2>/dev/null | grep -E 'mWakefulness=' | head -2 >> report/capture.txt || true
+if app_in_front; then
+  echo "app_in_front=yes" | tee -a report/capture.txt
+else
+  echo "app_in_front=no" | tee -a report/capture.txt
+fi
 
 adb shell dumpsys window 2>/dev/null | grep -E 'mCurrentFocus|mFocusedApp' | head -6 | tee report/focus.txt
 if grep -q 'Application Not Responding' report/focus.txt; then
