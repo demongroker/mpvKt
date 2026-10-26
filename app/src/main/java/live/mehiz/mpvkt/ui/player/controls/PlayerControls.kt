@@ -573,7 +573,10 @@ fun PlayerControls(
     }
     val sheetShown by viewModel.sheetShown.collectAsState()
     val subtitles by viewModel.subtitleTracks.collectAsState()
-    val subtitleSearch by viewModel.subtitleSearch.collectAsState(SubtitleSearchState.Idle(""))
+    var subtitleSearch by remember { mutableStateOf<SubtitleSearchState>(SubtitleSearchState.Idle("")) }
+    LaunchedEffect(viewModel) {
+      viewModel.subtitleSearch.collect { subtitleSearch = it }
+    }
     val audioTracks by viewModel.audioTracks.collectAsState(persistentListOf())
     val sleepTimerTimeRemaining by viewModel.remainingTime.collectAsState()
     val speedPresets by playerPreferences.speedPresets.collectAsState()
