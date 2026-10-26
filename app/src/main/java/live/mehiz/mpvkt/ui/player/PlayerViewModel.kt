@@ -366,7 +366,7 @@ class PlayerViewModel(
 
   /** Relative seek used by the optional skip buttons (positive = forward). */
   fun seekRelative(seconds: Int) {
-    MPVLib.command("seek", seconds, "relative")
+    MPVLib.command("seek", seconds.toString(), "relative")
   }
 
   fun cycleScreenRotations() {

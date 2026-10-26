@@ -1,5 +1,9 @@
 package live.mehiz.mpvkt.ui.player.controls
 
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.Alignment
+
 import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.LocalActivity
