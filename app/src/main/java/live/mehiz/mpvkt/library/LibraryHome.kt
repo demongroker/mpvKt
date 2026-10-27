@@ -172,11 +172,15 @@ fun LibraryHome(
     loading = false
   }
 
-  // Locked folders join hidden ones at the single filter point. Folders unlocked for
-  // this session drop out, so the library repaints as soon as the PIN is accepted.
-  val exclusions = fromSource + LibraryExclusions(
-    folders = hiddenFolders + (lockedFolders - unlockedLocked),
-  )
+  // The exclusion source is the single authority for locking. It has to be re-asked
+  // whenever a folder is unlocked or re-locked: fromSource was captured at load time,
+  // so leaving it stale kept hiding a folder the owner had just opened.
+  LaunchedEffect(granted, unlockedLocked, lockedFolders) {
+    if (!granted) return@LaunchedEffect
+    fromSource = exclusionSource.exclusions()
+  }
+
+  val exclusions = fromSource + LibraryExclusions(folders = hiddenFolders)
   val folders = remember(videos, exclusions, pinnedFolders, query, sort) {
     LibraryLogic.groupByFolder(
       videos = videos,
@@ -188,9 +192,12 @@ fun LibraryHome(
   }
   val shownFolders = folders.take(loadedFolders)
 
-  // "Continue watching" only makes sense on the unfiltered library view.
-  val continueWatching = remember(videos, query) {
-    if (query.isBlank()) ContinueWatching.pick(videos) else emptyList()
+  // "Continue watching" is built from the excluded-aware list, otherwise a file inside a
+  // locked folder would leak into the strip at the top of the library. It also only makes
+  // sense on the unfiltered view, so a search hides it.
+  val visibleVideos = remember(videos, exclusions) { LibraryLogic.applyExclusions(videos, exclusions) }
+  val continueWatching = remember(visibleVideos, query) {
+    if (query.isBlank()) ContinueWatching.pick(visibleVideos) else emptyList()
   }
   val continueQueue = remember(continueWatching) {
     QueueLogic.queueFor(

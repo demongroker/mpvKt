@@ -6,6 +6,15 @@ Newest first. Each entry describes one reviewable step.
 
 Nothing yet.
 
+### 0.1.19 — unlocks actually come back
+- **fix(library): an unlocked folder stayed hidden.** The screen cached the exclusion set
+  once at load, so unlocking only changed half the picture: the cached half kept hiding the
+  folder. The exclusion source is now re-asked whenever a folder is unlocked or locked, so
+  the library repaints immediately after the PIN is accepted.
+- **fix(privacy): locked files no longer appeared in Continue watching.** The strip was built
+  from the raw video list instead of the exclusion-filtered one, so a half-watched file inside
+  a locked folder showed up at the top of the library. It now uses the filtered list.
+
 ### 0.1.18 — locked folders
 - **feat(library): lock a folder behind a PIN.** Long-press a folder → "Lock folder (PIN)".
   Locked folders leave the library entirely — they are filtered at the same single
