@@ -140,6 +140,8 @@ fun LibraryHome(
   var pendingLockFolder by remember { mutableStateOf<String?>(null) }
   var showSetPin by remember { mutableStateOf(false) }
   var showUnlockPin by remember { mutableStateOf(false) }
+  var showLockManager by remember { mutableStateOf(false) }
+  var managerUnlocked by remember { mutableStateOf(false) }
   val lockedFolders by lockPreferences.lockedFolders.collectAsState()
   val unlockedLocked by lockSession.unlockedFolders.collectFlowAsState()
 
@@ -342,6 +344,16 @@ fun LibraryHome(
             onClick = {
               menuOpen = false
               Log.d(LOCK_TAG, "unlock requested: locked=${lockedFolders.size} open=${unlockedLocked.size}")
+              managerUnlocked = false
+              showUnlockPin = true
+            },
+          )
+          DropdownMenuItem(
+            text = { Text("Manage locked folders (${lockedFolders.size})") },
+            leadingIcon = { Icon(Icons.Default.Lock, null) },
+            onClick = {
+              menuOpen = false
+              managerUnlocked = true
               showUnlockPin = true
             },
           )
@@ -395,6 +407,18 @@ fun LibraryHome(
     )
   }
 
+  if (showLockManager) {
+    LockManagerDialog(
+      lockedFolders = lockedFolders,
+      onRemove = { folder ->
+        lockPreferences.lockedFolders.set(lockedFolders - folder)
+        Log.d(LOCK_TAG, "unlocked folder $folder by removal; left=${lockPreferences.lockedFolders.get().size}")
+        scope.launch { refreshExclusions() }
+      },
+      onDismiss = { showLockManager = false },
+    )
+  }
+
   if (showUnlockPin) {
     PinPromptDialog(
       title = "Unlock locked folders",
@@ -415,6 +439,7 @@ fun LibraryHome(
           lockSession.unlockAll()
           Log.d(LOCK_TAG, "unlocked all: open=${lockSession.unlockedFolders.value.size}")
           scope.launch { refreshExclusions() }
+          if (managerUnlocked) showLockManager = true
         }
         ok
       },

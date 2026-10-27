@@ -6,6 +6,16 @@ Newest first. Each entry describes one reviewable step.
 
 Nothing yet.
 
+### 0.1.21 — see and edit exactly which folders are locked
+- **feat(library): Manage locked folders.** The + menu now lists every locked folder by
+  name (behind the PIN) with a Remove button per row, so a folder can be made visible again
+  without unlocking the rest. Before this, the only control was all-or-nothing: the count in
+  the menu told you how many were locked but not which, and nothing could be un-locked
+  individually.
+- Locking one folder still locks **only that folder** — long-press a folder row → "Lock
+  folder (PIN)". The count accumulates across everything ever locked, which is what the
+  manager now makes visible.
+
 ### 0.1.20 — unlocking is repeatable
 - **fix(library): unlocking a second time did nothing.** The + menu had one entry whose job
   changed depending on state ("Locked folders" vs "Lock them again"), so after a re-lock the
