@@ -25,7 +25,7 @@ class VolumeMemoryTest {
   fun outOfRangeValuesAreClampedBothWays() {
     assertEquals(0, VolumeMemory.clamp(-20))
     assertEquals(VolumeMemory.MAX_VOLUME, VolumeMemory.clamp(999))
-    assertEquals(120, VolumeMemory.onStart(remember = true, stored = 500))
+    assertEquals(VolumeMemory.MAX_VOLUME, VolumeMemory.onStart(remember = true, stored = 500))
   }
 
   @Test

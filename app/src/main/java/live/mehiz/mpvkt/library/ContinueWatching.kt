@@ -9,12 +9,17 @@ object ContinueWatching {
   /** How many items the strip shows; the rest stay in their folders. */
   const val DEFAULT_LIMIT = 12
 
-  /** A video belongs in the strip when it can be resumed and is not finished. */
-  fun isResumable(video: LibraryVideo): Boolean = LibraryLogic.shouldOfferResume(
-    completed = video.completed,
-    positionMs = video.positionMs,
-    durationMs = video.durationMs,
-  )
+  /**
+   * A video belongs in the strip when it can be resumed and is not finished.
+   * shouldOfferResume alone is not enough: it lets a 98 %-watched file through, and
+   * those belong in "finished", not "continue".
+   */
+  fun isResumable(video: LibraryVideo): Boolean =
+    LibraryLogic.shouldOfferResume(
+      positionMs = video.positionMs,
+      durationMs = video.durationMs,
+      completed = video.completed,
+    ) && !LibraryLogic.isCompleted(video.positionMs, video.durationMs)
 
   /**
    * Resumable videos, most recently played first, one row per file, capped at [limit].
