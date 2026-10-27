@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -88,6 +89,7 @@ import org.koin.compose.koinInject
 private const val VIDEO_ASPECT = 16f / 9f
 private const val FOLDERS_PER_PAGE = 12
 private const val CONTINUE_FOLDER = "Continue watching"
+private const val LOCK_TAG = "VelaLock"
 
 /**
  * The library is the home screen: folders first, an expandable grid inside each
@@ -175,9 +177,14 @@ fun LibraryHome(
   // The exclusion source is the single authority for locking. It has to be re-asked
   // whenever a folder is unlocked or re-locked: fromSource was captured at load time,
   // so leaving it stale kept hiding a folder the owner had just opened.
+  suspend fun refreshExclusions() {
+    fromSource = exclusionSource.exclusions()
+    Log.d(LOCK_TAG, "exclusions refreshed: source=${fromSource.folders.size} open=${unlockedLocked.size}")
+  }
+
   LaunchedEffect(granted, unlockedLocked, lockedFolders) {
     if (!granted) return@LaunchedEffect
-    fromSource = exclusionSource.exclusions()
+    refreshExclusions()
   }
 
   val exclusions = fromSource + LibraryExclusions(folders = hiddenFolders)
@@ -274,6 +281,8 @@ fun LibraryHome(
             onLock = {
               if (lockPreferences.hasPin()) {
                 lockPreferences.lockedFolders.set(lockedFolders + folder.name)
+                Log.d(LOCK_TAG, "locked ${folder.name}; total=${lockPreferences.lockedFolders.get().size}")
+                scope.launch { refreshExclusions() }
               } else {
                 pendingLockFolder = folder.name
                 showSetPin = true
@@ -328,26 +337,26 @@ fun LibraryHome(
         )
         if (lockedFolders.isNotEmpty()) {
           DropdownMenuItem(
-            text = {
-              Text(
-                if (unlockedLocked.isEmpty()) {
-                  "Locked folders (${lockedFolders.size})"
-                } else {
-                  "Lock them again (${lockedFolders.size})"
-                },
-              )
-            },
-            leadingIcon = {
-              Icon(
-                if (unlockedLocked.isEmpty()) Icons.Default.Lock else Icons.Default.LockOpen,
-                null,
-              )
-            },
+            text = { Text("Unlock locked folders (${lockedFolders.size})") },
+            leadingIcon = { Icon(Icons.Default.Lock, null) },
             onClick = {
               menuOpen = false
-              if (unlockedLocked.isEmpty()) showUnlockPin = true else lockSession.lockAll()
+              Log.d(LOCK_TAG, "unlock requested: locked=${lockedFolders.size} open=${unlockedLocked.size}")
+              showUnlockPin = true
             },
           )
+          if (unlockedLocked.isNotEmpty()) {
+            DropdownMenuItem(
+              text = { Text("Lock them again (${lockedFolders.size})") },
+              leadingIcon = { Icon(Icons.Default.LockOpen, null) },
+              onClick = {
+                menuOpen = false
+                Log.d(LOCK_TAG, "relock requested: open=${unlockedLocked.size}")
+                lockSession.lockAll()
+                scope.launch { refreshExclusions() }
+              },
+            )
+          }
         }
         if (hiddenFolders.isNotEmpty()) {
           DropdownMenuItem(
@@ -397,7 +406,16 @@ fun LibraryHome(
           salt = lockPreferences.pinSalt.get(),
           expected = lockPreferences.pinHash.get(),
         )
-        if (ok) lockSession.unlockAll()
+        Log.d(
+          LOCK_TAG,
+          "pin result=$ok hashSet=${lockPreferences.pinHash.get().isNotEmpty()} " +
+            "locked=${lockPreferences.lockedFolders.get().size}",
+        )
+        if (ok) {
+          lockSession.unlockAll()
+          Log.d(LOCK_TAG, "unlocked all: open=${lockSession.unlockedFolders.value.size}")
+          scope.launch { refreshExclusions() }
+        }
         ok
       },
     )

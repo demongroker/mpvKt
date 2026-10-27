@@ -6,6 +6,16 @@ Newest first. Each entry describes one reviewable step.
 
 Nothing yet.
 
+### 0.1.20 — unlocking is repeatable
+- **fix(library): unlocking a second time did nothing.** The + menu had one entry whose job
+  changed depending on state ("Locked folders" vs "Lock them again"), so after a re-lock the
+  tap landed on the wrong action. It is now two explicit entries: "Unlock locked folders (n)"
+  always opens the PIN dialog, and "Lock them again (n)" only appears while a folder is open.
+- **fix(library): the exclusion set is refreshed by the action itself**, not only by watching
+  state, so the library repaints even when the unlock state happens to look unchanged.
+- Diagnostics: every lock/unlock step logs under `VelaLock` (menu taps, PIN result, unlock
+  count, refreshed exclusion count) for `adb logcat -s VelaLock` if anything still misbehaves.
+
 ### 0.1.19 — unlocks actually come back
 - **fix(library): an unlocked folder stayed hidden.** The screen cached the exclusion set
   once at load, so unlocking only changed half the picture: the cached half kept hiding the
