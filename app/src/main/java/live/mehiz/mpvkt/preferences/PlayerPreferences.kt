@@ -58,6 +58,10 @@ class PlayerPreferences(
   val closeAfterReachingEndOfVideo = preferenceStore.getBoolean("close_after_eof")
 
   val rememberBrightness = preferenceStore.getBoolean("remember_rightness")
+
+  /** Keep the volume level between sessions instead of resetting to mpv's default. */
+  val rememberVolume = preferenceStore.getBoolean("remember_volume", true)
+  val lastVolume = preferenceStore.getInt("last_volume", 100)
   val defaultBrightness = preferenceStore.getFloat("default_brightness", -1f)
 
   val allowGesturesInPanels = preferenceStore.getBoolean("allow_gestures_in_panels")

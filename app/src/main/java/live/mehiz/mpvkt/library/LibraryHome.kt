@@ -25,9 +25,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items as listItems
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -81,6 +84,7 @@ import org.koin.compose.koinInject
 
 private const val VIDEO_ASPECT = 16f / 9f
 private const val FOLDERS_PER_PAGE = 12
+private const val CONTINUE_FOLDER = "Continue watching"
 
 /**
  * The library is the home screen: folders first, an expandable grid inside each
@@ -170,6 +174,19 @@ fun LibraryHome(
   }
   val shownFolders = folders.take(loadedFolders)
 
+  // "Continue watching" only makes sense on the unfiltered library view.
+  val continueWatching = remember(videos, query) {
+    if (query.isBlank()) ContinueWatching.pick(videos) else emptyList()
+  }
+  val continueQueue = remember(continueWatching) {
+    QueueLogic.queueFor(
+      videos = continueWatching,
+      folder = CONTINUE_FOLDER,
+      shuffled = false,
+      seed = 0L,
+    )
+  }
+
   /** The queue for a folder: its files in the library's own order, unless shuffled. */
   fun queueForFolder(folder: LibraryFolder): PlaybackQueue = QueueLogic.queueFor(
     videos = folder.videos,
@@ -198,6 +215,17 @@ fun LibraryHome(
           sort = sort,
           onSortChange = { preferences.sortOrder.set(it.name) },
         )
+      }
+      if (continueWatching.isNotEmpty()) {
+        item(span = { GridItemSpan(maxLineSpan) }, key = "continue-watching") {
+          ContinueWatchingRow(
+            videos = continueWatching,
+            context = context,
+            thumbnails = thumbnails,
+            onPlay = { video -> onPlayVideo(video, continueQueue) },
+            onDelete = { pendingDelete = it },
+          )
+        }
       }
       if (loading) {
         item(span = { GridItemSpan(maxLineSpan) }) { Text("Scanning…", Modifier.padding(16.dp)) }
@@ -499,6 +527,36 @@ private fun VideoCard(
       overflow = TextOverflow.Ellipsis,
       modifier = Modifier.padding(8.dp),
     )
+  }
+}
+
+@Composable
+private fun ContinueWatchingRow(
+  videos: List<LibraryVideo>,
+  context: Context,
+  thumbnails: ThumbnailCache,
+  onPlay: (LibraryVideo) -> Unit,
+  onDelete: (LibraryVideo) -> Unit,
+) {
+  Column(modifier = Modifier.padding(bottom = 8.dp)) {
+    Text(
+      text = "Continue watching",
+      style = MaterialTheme.typography.titleSmall,
+      modifier = Modifier.padding(start = 4.dp, bottom = 6.dp),
+    )
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+      listItems(videos, key = { it.fileKey }) { video ->
+        Box(modifier = Modifier.width(160.dp)) {
+          VideoCard(
+            video = video,
+            context = context,
+            thumbnails = thumbnails,
+            onPlay = { onPlay(video) },
+            onDelete = { onDelete(video) },
+          )
+        }
+      }
+    }
   }
 }
 

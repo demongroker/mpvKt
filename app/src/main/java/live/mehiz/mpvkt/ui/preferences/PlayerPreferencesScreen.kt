@@ -130,6 +130,12 @@ object PlayerPreferencesScreen : Screen {
             onValueChange = preferences.rememberBrightness::set,
             title = { Text(text = stringResource(R.string.pref_player_remember_brightness)) }
           )
+          val rememberVolume by preferences.rememberVolume.collectAsState()
+          SwitchPreference(
+            value = rememberVolume,
+            onValueChange = preferences.rememberVolume::set,
+            title = { Text(text = stringResource(R.string.pref_player_remember_volume)) }
+          )
           PreferenceCategory(
             title = { Text(stringResource(R.string.pref_player_seeking_title)) }
           )

@@ -6,6 +6,18 @@ Newest first. Each entry describes one reviewable step.
 
 Nothing yet.
 
+### 0.1.17 — continue watching, remembered volume
+- **feat(library): "Continue watching" strip** at the top of the library. Files that were
+  started and not finished appear once, most recently played first, above the folders;
+  tapping one opens it with the strip as the queue, so Next walks what you were watching.
+  Finished files (95 %+) and barely-started ones (under 10 s) stay out. Hidden while a
+  search is active.
+- **feat(player): the volume level is remembered between sessions.** Saved when the player
+  pauses or leaves, applied once per session on start, clamped to mpv's legal range. New
+  switch under Preferences → Player → "Remember volume between sessions" (default on);
+  turning it off leaves mpv's own default alone instead of forcing a value.
+- build: `.kotlin/` is ignored.
+
 ### 0.1.16 — the queue stays in the player
 - **fix(next): Next and Previous no longer drop you back to the library.** They used
   to start a second PlayerActivity and finish the current one. The file is now

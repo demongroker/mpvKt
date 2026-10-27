@@ -77,6 +77,7 @@ import live.mehiz.mpvkt.library.QueueLogic
 import live.mehiz.mpvkt.preferences.AdvancedPreferences
 import live.mehiz.mpvkt.preferences.AudioPreferences
 import live.mehiz.mpvkt.preferences.GesturePreferences
+import live.mehiz.mpvkt.library.VolumeMemory
 import live.mehiz.mpvkt.preferences.PlayerPreferences
 import live.mehiz.mpvkt.preferences.SubtitlesPreferences
 import live.mehiz.mpvkt.ui.player.controls.PlayerControls
@@ -98,6 +99,9 @@ class PlayerActivity : AppCompatActivity() {
 
   /** The folder queue, handed over by the library so next/shuffle/delete work here. */
   private var queue: PlaybackQueue? = null
+
+  /** Volume is restored once per session, not on every resume. */
+  private var volumeRestored = false
 
   /** Files that already failed to open in this session's auto-advance chain. */
   private val pendingFailedKeys = mutableSetOf<String>()
@@ -223,6 +227,9 @@ class PlayerActivity : AppCompatActivity() {
     }
     saveVideoPlaybackState(fileName)
     saveResumeState()
+    if (playerPreferences.rememberVolume.get()) {
+      playerPreferences.lastVolume.set(VolumeMemory.toStore(MPVLib.getPropertyInt("volume")))
+    }
     super.onPause()
   }
 
@@ -460,6 +467,15 @@ class PlayerActivity : AppCompatActivity() {
       audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).also {
         if (it < viewModel.maxVolume) viewModel.changeMPVVolumeTo(100)
       }
+    }
+    // Remembered volume: applied once per session, never on every resume (that would
+    // fight the volume gesture).
+    if (!volumeRestored) {
+      volumeRestored = true
+      VolumeMemory.onStart(
+        remember = playerPreferences.rememberVolume.get(),
+        stored = playerPreferences.lastVolume.get(),
+      )?.let { MPVLib.setPropertyInt("volume", it) }
     }
     // Returning from background: re-read mpv so the centre icon is right at once.
     val pausedNow = MPVLib.getPropertyBoolean("pause")
