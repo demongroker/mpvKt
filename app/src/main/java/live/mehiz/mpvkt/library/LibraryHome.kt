@@ -60,6 +60,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState as collectFlowAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -138,7 +139,7 @@ fun LibraryHome(
   var showSetPin by remember { mutableStateOf(false) }
   var showUnlockPin by remember { mutableStateOf(false) }
   val lockedFolders by lockPreferences.lockedFolders.collectAsState()
-  val unlockedLocked by lockSession.unlockedFolders.collectAsState()
+  val unlockedLocked by lockSession.unlockedFolders.collectFlowAsState()
 
   // Deleting is the system's job: MediaStore shows its own dialog, and only a
   // RESULT_OK from it may touch the library list or the resume row.
