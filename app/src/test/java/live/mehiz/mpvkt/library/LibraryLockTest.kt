@@ -106,7 +106,10 @@ class LibraryLockTest {
     val a = LibraryLock.hash("1234", salt)
     val b = LibraryLock.hash("1234", salt)
     assertTrue(LibraryLock.hashEquals(a, b))
-    assertFalse(LibraryLock.hashEquals(a, a.dropLast(1) + "0"))
+    // Flip the last character deterministically: with a random salt the hash sometimes
+    // already ends in '0', which made the old assertion flaky.
+    val flipped = a.dropLast(1) + if (a.last() == '0') '1' else '0'
+    assertFalse(LibraryLock.hashEquals(a, flipped))
     assertFalse(LibraryLock.hashEquals(a, "short"))
   }
 }
