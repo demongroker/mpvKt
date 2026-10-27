@@ -1,6 +1,9 @@
 package live.mehiz.mpvkt.di
 
 import live.mehiz.mpvkt.library.LibraryExclusionSource
+import live.mehiz.mpvkt.library.LockPreferences
+import live.mehiz.mpvkt.library.LockSession
+import live.mehiz.mpvkt.library.LockedFolderExclusionSource
 import live.mehiz.mpvkt.library.MediaStoreLibraryRepository
 import live.mehiz.mpvkt.library.ThumbnailCache
 import org.koin.android.ext.koin.androidContext
@@ -11,9 +14,12 @@ val LibraryModule = module {
   single { ThumbnailCache() }
   single { MediaStoreLibraryRepository(androidContext(), get()) }
 
+  single { LockPreferences(get()) }
+  single { LockSession(get()) }
+
   /**
-   * Nothing is excluded beyond hidden folders today. The locked-folder feature
-   * replaces this binding; no screen or repository changes are needed for that.
+   * Locked folders feed the library's single exclusion point. Hidden folders are applied
+   * separately by the library screen, so this source only answers for locking.
    */
-  single<LibraryExclusionSource> { LibraryExclusionSource.None }
+  single<LibraryExclusionSource> { LockedFolderExclusionSource(get()) }
 }

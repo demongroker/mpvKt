@@ -6,6 +6,19 @@ Newest first. Each entry describes one reviewable step.
 
 Nothing yet.
 
+### 0.1.18 — locked folders
+- **feat(library): lock a folder behind a PIN.** Long-press a folder → "Lock folder (PIN)".
+  Locked folders leave the library entirely — they are filtered at the same single
+  exclusion point hidden folders already use, so search, Continue watching, queues and
+  the folder list all lose them together. Unlock from the + menu ("Locked folders (n)"),
+  and they re-lock themselves after the timeout (default 5 min) or immediately via
+  "Lock them again".
+- **The PIN is never stored.** Only a salted PBKDF2 hash is written (PBKDF2WithHmacSHA256,
+  with the SHA1 PRF as the fallback for API 21–25), verified in constant time; the PIN
+  itself is asked twice when created and never logged. Nothing about an unlock survives
+  the app closing.
+- Lock state is session-only: locked automatically on restart, which is the point.
+
 ### 0.1.17 — continue watching, remembered volume
 - **feat(library): "Continue watching" strip** at the top of the library. Files that were
   started and not finished appear once, most recently played first, above the folders;

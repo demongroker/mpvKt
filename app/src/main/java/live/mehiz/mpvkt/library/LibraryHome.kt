@@ -39,6 +39,8 @@ import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sort
@@ -104,6 +106,8 @@ fun LibraryHome(
   val exclusionSource = koinInject<LibraryExclusionSource>()
   val preferences = koinInject<LibraryPreferences>()
   val thumbnails = koinInject<ThumbnailCache>()
+  val lockPreferences = koinInject<LockPreferences>()
+  val lockSession = koinInject<LockSession>()
 
   val permission = if (Build.VERSION.SDK_INT >= 33) {
     Manifest.permission.READ_MEDIA_VIDEO
@@ -130,6 +134,11 @@ fun LibraryHome(
   val scope = rememberCoroutineScope()
   var pendingDelete by remember { mutableStateOf<LibraryVideo?>(null) }
   var confirmDelete by remember { mutableStateOf(false) }
+  var pendingLockFolder by remember { mutableStateOf<String?>(null) }
+  var showSetPin by remember { mutableStateOf(false) }
+  var showUnlockPin by remember { mutableStateOf(false) }
+  val lockedFolders by lockPreferences.lockedFolders.collectAsState()
+  val unlockedLocked by lockSession.unlockedFolders.collectAsState()
 
   // Deleting is the system's job: MediaStore shows its own dialog, and only a
   // RESULT_OK from it may touch the library list or the resume row.
@@ -162,7 +171,11 @@ fun LibraryHome(
     loading = false
   }
 
-  val exclusions = fromSource + LibraryExclusions(folders = hiddenFolders)
+  // Locked folders join hidden ones at the single filter point. Folders unlocked for
+  // this session drop out, so the library repaints as soon as the PIN is accepted.
+  val exclusions = fromSource + LibraryExclusions(
+    folders = hiddenFolders + (lockedFolders - unlockedLocked),
+  )
   val folders = remember(videos, exclusions, pinnedFolders, query, sort) {
     LibraryLogic.groupByFolder(
       videos = videos,
@@ -250,6 +263,14 @@ fun LibraryHome(
               )
             },
             onHide = { preferences.hiddenFolders.set(hiddenFolders + folder.name) },
+            onLock = {
+              if (lockPreferences.hasPin()) {
+                lockPreferences.lockedFolders.set(lockedFolders + folder.name)
+              } else {
+                pendingLockFolder = folder.name
+                showSetPin = true
+              }
+            },
           )
         }
         if (folder.name in expanded) {
@@ -297,6 +318,29 @@ fun LibraryHome(
             onBrowseFolder()
           },
         )
+        if (lockedFolders.isNotEmpty()) {
+          DropdownMenuItem(
+            text = {
+              Text(
+                if (unlockedLocked.isEmpty()) {
+                  "Locked folders (${lockedFolders.size})"
+                } else {
+                  "Lock them again (${lockedFolders.size})"
+                },
+              )
+            },
+            leadingIcon = {
+              Icon(
+                if (unlockedLocked.isEmpty()) Icons.Default.Lock else Icons.Default.LockOpen,
+                null,
+              )
+            },
+            onClick = {
+              menuOpen = false
+              if (unlockedLocked.isEmpty()) showUnlockPin = true else lockSession.lockAll()
+            },
+          )
+        }
         if (hiddenFolders.isNotEmpty()) {
           DropdownMenuItem(
             text = { Text("Unhide all folders (${hiddenFolders.size})") },
@@ -308,6 +352,47 @@ fun LibraryHome(
         }
       }
     }
+  }
+
+  // Locked folders re-lock themselves while the app is open.
+  LaunchedEffect(lockedFolders) {
+    while (true) {
+      lockSession.enforceTimeout()
+      kotlinx.coroutines.delay(30_000)
+    }
+  }
+
+  if (showSetPin) {
+    SetPinDialog(
+      onDismiss = {
+        showSetPin = false
+        pendingLockFolder = null
+      },
+      onSave = { pin ->
+        lockPreferences.setPin(pin)
+        pendingLockFolder?.let { name ->
+          lockPreferences.lockedFolders.set(lockedFolders + name)
+        }
+        pendingLockFolder = null
+      },
+    )
+  }
+
+  if (showUnlockPin) {
+    PinPromptDialog(
+      title = "Unlock locked folders",
+      subtitle = "${lockedFolders.size} folder(s) are hidden.",
+      onDismiss = { showUnlockPin = false },
+      onSubmit = { pin ->
+        val ok = LibraryLock.verify(
+          pin = pin,
+          salt = lockPreferences.pinSalt.get(),
+          expected = lockPreferences.pinHash.get(),
+        )
+        if (ok) lockSession.unlockAll()
+        ok
+      },
+    )
   }
 
   pendingDelete?.let { target ->
@@ -415,6 +500,7 @@ private fun FolderHeader(
   onToggle: () -> Unit,
   onPin: () -> Unit,
   onHide: () -> Unit,
+  onLock: () -> Unit,
 ) {
   var menu by remember { mutableStateOf(false) }
   val thumb by rememberThumb(folder.cover, context, thumbnails)
@@ -461,6 +547,14 @@ private fun FolderHeader(
         onClick = {
           menu = false
           onHide()
+        },
+      )
+      DropdownMenuItem(
+        text = { Text("Lock folder (PIN)") },
+        leadingIcon = { Icon(Icons.Default.Lock, null) },
+        onClick = {
+          menu = false
+          onLock()
         },
       )
     }
