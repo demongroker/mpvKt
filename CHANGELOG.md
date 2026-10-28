@@ -6,6 +6,13 @@ Newest first. Each entry describes one reviewable step.
 
 Nothing yet.
 
+### 0.1.22 — a forgotten PIN is no longer a dead end
+- **feat(lock): "Forgot PIN" escape hatch.** The PIN prompt now offers Forgot PIN, which
+  explains exactly what will happen before it happens: the PIN is cleared and every locked
+  folder becomes visible again. It cannot be undone without setting a new PIN, which is why
+  it asks first and says so plainly.
+- Before this, a forgotten PIN left folders hidden until app data was cleared by hand.
+
 ### 0.1.21 — see and edit exactly which folders are locked
 - **feat(library): Manage locked folders.** The + menu now lists every locked folder by
   name (behind the PIN) with a Remove button per row, so a folder can be made visible again

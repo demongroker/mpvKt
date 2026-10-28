@@ -141,6 +141,7 @@ fun LibraryHome(
   var showSetPin by remember { mutableStateOf(false) }
   var showUnlockPin by remember { mutableStateOf(false) }
   var showLockManager by remember { mutableStateOf(false) }
+  var showForgotPin by remember { mutableStateOf(false) }
   var managerUnlocked by remember { mutableStateOf(false) }
   val lockedFolders by lockPreferences.lockedFolders.collectAsState()
   val unlockedLocked by lockSession.unlockedFolders.collectFlowAsState()
@@ -407,6 +408,21 @@ fun LibraryHome(
     )
   }
 
+  if (showForgotPin) {
+    ForgotPinDialog(
+      lockedCount = lockedFolders.size,
+      onDismiss = { showForgotPin = false },
+      onConfirm = {
+        showForgotPin = false
+        showUnlockPin = false
+        lockPreferences.clearPin()
+        lockSession.lockAll()
+        Log.d(LOCK_TAG, "lock reset: pin cleared, locked folder list emptied")
+        scope.launch { refreshExclusions() }
+      },
+    )
+  }
+
   if (showLockManager) {
     LockManagerDialog(
       lockedFolders = lockedFolders,
@@ -443,6 +459,7 @@ fun LibraryHome(
         }
         ok
       },
+      onForgotPin = { showForgotPin = true },
     )
   }
 

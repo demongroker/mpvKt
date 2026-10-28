@@ -2,6 +2,7 @@ package live.mehiz.mpvkt.library
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
@@ -28,6 +29,7 @@ internal fun PinPromptDialog(
   subtitle: String? = null,
   onDismiss: () -> Unit,
   onSubmit: (String) -> Boolean,
+  onForgotPin: (() -> Unit)? = null,
 ) {
   var pin by remember { mutableStateOf("") }
   var error by remember { mutableStateOf<String?>(null) }
@@ -66,7 +68,39 @@ internal fun PinPromptDialog(
         enabled = pin.isNotEmpty(),
       ) { Text("Unlock") }
     },
-    dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    dismissButton = {
+      Row {
+        if (onForgotPin != null) {
+          TextButton(onClick = onForgotPin) { Text("Forgot PIN") }
+        }
+        TextButton(onClick = onDismiss) { Text("Cancel") }
+      }
+    },
+  )
+}
+
+/**
+ * The escape hatch for a forgotten PIN: it explains exactly what will be revealed before
+ * doing it, because the only way to drop the hash is to unlock everything.
+ */
+@Composable
+internal fun ForgotPinDialog(
+  lockedCount: Int,
+  onDismiss: () -> Unit,
+  onConfirm: () -> Unit,
+) {
+  AlertDialog(
+    onDismissRequest = onDismiss,
+    title = { Text("Reset the lock?") },
+    text = {
+      Text(
+        "This removes the PIN and shows all $lockedCount locked folder" +
+          (if (lockedCount == 1) "" else "s") +
+          " again. There is no other way back without the PIN, and it cannot be undone.",
+      )
+    },
+    confirmButton = { TextButton(onClick = onConfirm) { Text("Reset lock") } },
+    dismissButton = { TextButton(onClick = onDismiss) { Text("Keep locked") } },
   )
 }
 

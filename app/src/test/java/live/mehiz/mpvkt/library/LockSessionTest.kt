@@ -119,6 +119,17 @@ class LockSessionTest {
   }
 
   @Test
+  fun clearingThePinRevealsEveryFolderAndForgetsThePin() {
+    val prefs = preferences(setOf("Private", "Soft"))
+    assertTrue(prefs.hasPin())
+    prefs.clearPin()
+    assertFalse(prefs.hasPin())
+    assertEquals(emptySet<String>(), prefs.lockedFolders.get())
+    // nothing is excluded once the lock is gone
+    assertTrue(LockSession(prefs).exclusions().isEmpty())
+  }
+
+  @Test
   fun theExclusionSourceReportsTheSessionState() {
     val session = LockSession(preferences(setOf("Private")))
     val source = LockedFolderExclusionSource(session)
