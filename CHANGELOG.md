@@ -6,6 +6,16 @@ Newest first. Each entry describes one reviewable step.
 
 Nothing yet.
 
+### 0.1.23 — half-size download on arm64 phones
+- **build: publish an arm64-only APK beside the universal one.** The release now ships
+  `vela-<version>.apk` (universal, for any device) and `vela-<version>-arm64.apk` (arm64 only,
+  roughly half the bytes). Both come from the same source and carry the **same versionCode**,
+  so a device can move between them without the split-upgrade trap that kept per-ABI splits
+  disabled.
+- **feat(update): the updater prefers the small build on arm64 devices** and takes the
+  checksum that belongs to the APK it actually downloaded, so a mismatched pair can never be
+  verified against the wrong hash.
+
 ### 0.1.22 — a forgotten PIN is no longer a dead end
 - **feat(lock): "Forgot PIN" escape hatch.** The PIN prompt now offers Forgot PIN, which
   explains exactly what will happen before it happens: the PIN is cleared and every locked

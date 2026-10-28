@@ -163,4 +163,40 @@ class UpdateLogicTest {
     assertFalse(UpdateLogic.plausibleSize(5_735))
     assertTrue(UpdateLogic.plausibleSize(68_277_160))
   }
+
+  private val assets = listOf(
+    "vela-0.1.23.apk",
+    "vela-0.1.23.apk.sha256",
+    "vela-0.1.23-arm64.apk",
+    "vela-0.1.23-arm64.apk.sha256",
+  )
+
+  @Test
+  fun anArm64DeviceTakesTheSmallBuild() {
+    assertEquals("vela-0.1.23-arm64.apk", UpdateLogic.pickApk(assets, preferArm64 = true))
+    assertEquals(
+      "vela-0.1.23-arm64.apk.sha256",
+      UpdateLogic.pickSha(assets, preferArm64 = true),
+    )
+  }
+
+  @Test
+  fun theChecksumAlwaysMatchesTheChosenApk() {
+    val armApk = UpdateLogic.pickApk(assets, preferArm64 = true)!!
+    val armSha = UpdateLogic.pickSha(assets, preferArm64 = true)!!
+    assertEquals("$armApk.sha256", armSha)
+  }
+
+  @Test
+  fun aUniversalReleaseStillUpdates() {
+    val universalOnly = listOf("vela-0.1.23.apk", "vela-0.1.23.apk.sha256")
+    assertEquals("vela-0.1.23.apk", UpdateLogic.pickApk(universalOnly, preferArm64 = true))
+    assertEquals("vela-0.1.23.apk.sha256", UpdateLogic.pickSha(universalOnly, preferArm64 = true))
+  }
+
+  @Test
+  fun checksumsAreNeverMistakenForAnApk() {
+    val chosen = UpdateLogic.pickApk(assets, preferArm64 = false)
+    assertTrue(chosen == null || !chosen.endsWith(".sha256"))
+  }
 }

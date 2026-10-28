@@ -88,14 +88,26 @@ object UpdateLogic {
     }
   }
 
-  /** Prefer the small arm64-only build; fall back to the universal APK. */
-  fun pickApk(names: List<String>): String? =
-    names.firstOrNull { it.endsWith("arm64-v8a-release.apk") }
-      ?: names.firstOrNull { it.endsWith(".apk") && !it.endsWith(".apk.sha256") }
+  private fun isSha(name: String): Boolean = name.endsWith(".apk.sha256")
 
-  fun pickSha(names: List<String>): String? =
-    names.firstOrNull { it.endsWith("arm64-v8a-release.apk.sha256") }
-      ?: names.firstOrNull { it.endsWith(".apk.sha256") }
+  private fun isArm64(name: String): Boolean = !isSha(name) &&
+    (name.endsWith("-arm64.apk") || name.endsWith("arm64-v8a-release.apk"))
+
+  /**
+   * Pick the APK to download. An arm64 device takes the small arm64-only build when the
+   * release publishes one; anything else falls back to the universal APK. Both carry the
+   * same versionCode, so switching between them is a normal update.
+   */
+  fun pickApk(names: List<String>, preferArm64: Boolean = false): String? =
+    (if (preferArm64) names.firstOrNull(::isArm64) else null)
+      ?: names.firstOrNull(::isArm64)
+      ?: names.firstOrNull { it.endsWith(".apk") && !isSha(it) }
+
+  /** The checksum that belongs to the APK picked for this device. */
+  fun pickSha(names: List<String>, preferArm64: Boolean = false): String? {
+    val apk = pickApk(names, preferArm64) ?: return names.firstOrNull { it.endsWith(".apk.sha256") }
+    return names.firstOrNull { it == "$apk.sha256" } ?: names.firstOrNull { it.endsWith(".apk.sha256") }
+  }
 
   /** A download may only be installed when its hash matches the published one. */
   fun matches(expectedSha: String?, actualSha: String?): Boolean {

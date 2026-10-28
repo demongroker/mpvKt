@@ -21,11 +21,23 @@ android {
     applicationId = "app.vela.player"
     minSdk = 21
     targetSdk = 36
-    versionCode = 350
-    versionName = "0.1.22"
+    versionCode = 360
+    versionName = "0.1.23"
 
     vectorDrawables {
       useSupportLibrary = true
+    }
+
+    // Optional ABI narrowing for the small arm64-only APK published beside the universal one.
+    // Both are built from the same source and carry the SAME versionCode, so a device can move
+    // between them without the split-upgrade trap that disabled per-ABI splits.
+    val velaAbi: List<String>? = (project.findProperty("velaAbi") as String?)
+      ?.split(',')
+      ?.map { it.trim() }
+      ?.filter { it.isNotEmpty() }
+    ndk {
+      abiFilters.clear()
+      abiFilters += (velaAbi ?: listOf("armeabi-v7a", "arm64-v8a", "x86_64"))
     }
 
     buildConfigField("String", "GIT_SHA", "\"${getCommitSha()}\"")

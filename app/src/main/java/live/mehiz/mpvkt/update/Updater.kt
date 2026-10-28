@@ -4,6 +4,7 @@ import android.app.DownloadManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
@@ -73,12 +74,12 @@ object Updater {
     Regex("sha:([0-9a-fA-F]{40})").find(release.body.orEmpty())?.groupValues?.get(1)
 
   fun apkAsset(release: GhRelease): GhAsset? {
-    val name = UpdateLogic.pickApk(release.assets.map { it.name }) ?: return null
+    val name = UpdateLogic.pickApk(release.assets.map { it.name }, preferArm64()) ?: return null
     return release.assets.firstOrNull { it.name == name }
   }
 
   fun sha256Asset(release: GhRelease): GhAsset? {
-    val name = UpdateLogic.pickSha(release.assets.map { it.name }) ?: return null
+    val name = UpdateLogic.pickSha(release.assets.map { it.name }, preferArm64()) ?: return null
     return release.assets.firstOrNull { it.name == name }
   }
 
@@ -155,3 +156,6 @@ object Updater {
     context.startActivity(intent)
   }
 }
+
+/** True when this device can install the small arm64-only build. */
+private fun preferArm64(): Boolean = Build.SUPPORTED_ABIS.contains("arm64-v8a")

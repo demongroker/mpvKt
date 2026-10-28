@@ -49,15 +49,18 @@ jobs:
           MPVKT_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           chmod +x gradlew
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p out
+          # universal first (works on any ABI)
           ./gradlew --no-daemon testDebugUnitTest assembleRelease -x lint
+          cp app/build/outputs/apk/release/app-release.apk "out/vela-${VERSION}.apk"
+          # then the arm64-only build: same versionCode, roughly half the size
+          ./gradlew --no-daemon assembleRelease -x lint -PvelaAbi=arm64-v8a
+          cp app/build/outputs/apk/release/app-release.apk "out/vela-${VERSION}-arm64.apk"
+          ls -la out
 
       - name: Collect APKs
-        run: |
-          mkdir -p out
-          VERSION="${GITHUB_REF_NAME#v}"
-          # One universal APK, named for the release rather than for Gradle.
-          cp app/build/outputs/apk/release/app-release.apk "out/vela-${VERSION}.apk"
-          ls -la out
+        run: ls -la out
 
       - name: Checksums
         run: |
