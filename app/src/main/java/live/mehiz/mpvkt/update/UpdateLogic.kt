@@ -103,10 +103,19 @@ object UpdateLogic {
       ?: names.firstOrNull(::isArm64)
       ?: names.firstOrNull { it.endsWith(".apk") && !isSha(it) }
 
-  /** The checksum that belongs to the APK picked for this device. */
+  /**
+   * The checksum that belongs to the APK picked for this device. When the asset list has no
+   * name we can pair with (older releases published only checksums), fall back to the arm64
+   * one first so the historical behaviour still holds.
+   */
   fun pickSha(names: List<String>, preferArm64: Boolean = false): String? {
-    val apk = pickApk(names, preferArm64) ?: return names.firstOrNull { it.endsWith(".apk.sha256") }
-    return names.firstOrNull { it == "$apk.sha256" } ?: names.firstOrNull { it.endsWith(".apk.sha256") }
+    val apk = pickApk(names, preferArm64)
+    if (apk != null) {
+      names.firstOrNull { it == "$apk.sha256" }?.let { return it }
+    }
+    return names.firstOrNull { it.endsWith("arm64-v8a-release.apk.sha256") }
+      ?: names.firstOrNull { preferArm64 && it.endsWith(".apk.sha256") && it.contains("arm64") }
+      ?: names.firstOrNull { it.endsWith(".apk.sha256") }
   }
 
   /** A download may only be installed when its hash matches the published one. */
